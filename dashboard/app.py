@@ -1,9 +1,9 @@
+import json
 from typing import Any
 
 import pandas as pd
 import requests
 import streamlit as st
-
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -18,6 +18,18 @@ st.title("🛡️ PipeGuard")
 st.subheader("Data Pipeline Monitoring Dashboard")
 
 
+def analyze_run(run_id: int) -> dict[str, Any] | None:
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/runs/{run_id}/analyze",
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Failed to analyze pipeline run: {exc}")
+        return None
 
 def get_runs() -> list[dict[str, Any]]:
     try:
@@ -166,3 +178,26 @@ else:
             use_container_width=True,
             hide_index=True,
         )
+        st.subheader("Incident Analysis")
+
+        if st.button("Analyze Selected Run"):
+            analysis = analyze_run(selected_run_id)
+
+            if analysis is not None:
+                st.success("Incident analysis completed.")
+
+                st.write("**Severity:**", analysis["severity"])
+                st.write("**Summary:**", analysis["summary"])
+                likely_causes = json.loads(analysis["likely_causes"])
+                recommended_steps = json.loads(analysis["recommended_steps"])
+
+                st.write("**Likely Causes:**")
+                for cause in likely_causes:
+                    st.write(f"- {cause}")
+
+                st.write("**Recommended Steps:**")
+                for step in recommended_steps:
+                    st.write(f"- {step}")
+                st.write("**Analysis Model:**", analysis["model_name"])
+
+

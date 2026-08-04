@@ -34,3 +34,15 @@ class QualityCheckResponse(BaseModel):
     status: str
     message: str
     created_at: datetime
+
+class IncidentAnalysisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    summary: str
+    severity: str
+    likely_causes: str
+    recommended_steps: str
+    model_name: str
+    created_at: datetime
