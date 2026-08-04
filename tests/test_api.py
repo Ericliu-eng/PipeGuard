@@ -63,3 +63,30 @@ def test_quality_failure_persists_four_failed_checks(client: TestClient) -> None
     checks = client.get(f"/runs/{created.json()['id']}/checks").json()
     assert len(checks) == 4
     assert {check["status"] for check in checks} == {"FAIL"}
+
+
+def test_analyze_failed_run_returns_rule_based_analysis(client: TestClient) -> None:
+    created = client.post("/runs/demo?simulate_failure=true")
+
+    assert created.status_code == 201
+    run_id = created.json()["id"]
+
+    response = client.post(f"/runs/{run_id}/analyze")
+
+    assert response.status_code == 201
+
+    payload = response.json()
+
+    assert payload["run_id"] == run_id
+    assert payload["severity"] == "high"
+    assert payload["model_name"] == "rule-based-fallback"
+    assert "timeout" in payload["summary"].lower()
+    assert "RuntimeError" in payload["likely_causes"]
+    assert "upstream service" in payload["recommended_steps"].lower()
+
+
+def test_analyze_unknown_run_returns_404(client: TestClient) -> None:
+    response = client.post("/runs/999/analyze")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Run not found"}

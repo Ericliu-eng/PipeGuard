@@ -5,8 +5,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeguard.database import get_db
-from pipeguard.models import PipelineRun, QualityCheck
-from pipeguard.schemas import PipelineRunResponse, QualityCheckResponse
+from pipeguard.models import IncidentAnalysis, PipelineRun, QualityCheck
+from pipeguard.schemas import (
+    IncidentAnalysisResponse,
+    PipelineRunResponse,
+    QualityCheckResponse,
+)
+from pipeguard.services.incident_analysis import build_incident_analysis
 from pipeguard.services.pipeline import DataScenario, run_demo_pipeline
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -46,3 +51,32 @@ def get_run_checks(run_id: int, db: DbSession) -> list[QualityCheck]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     statement = select(QualityCheck).where(QualityCheck.run_id == run_id).order_by(QualityCheck.id)
     return list(db.scalars(statement))
+
+@router.post(
+    "/{run_id}/analyze",
+    response_model=IncidentAnalysisResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def analyze_run(run_id: int, db: DbSession) -> IncidentAnalysis:
+    run = db.get(PipelineRun, run_id)
+
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+
+    statement = (
+        select(QualityCheck)
+        .where(QualityCheck.run_id == run_id)
+        .order_by(QualityCheck.id)
+    )
+    checks = list(db.scalars(statement))
+
+    analysis = build_incident_analysis(run, checks)
+
+    db.add(analysis)
+    db.commit()
+    db.refresh(analysis)
+
+    return analysis
