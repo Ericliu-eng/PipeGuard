@@ -11,8 +11,9 @@ The first runnable slice includes:
 - FastAPI application with a health endpoint
 - SQLite-backed run persistence (PostgreSQL-ready via `DATABASE_URL`)
 - Core tables for pipeline runs, quality checks, and incident analyses
-- Demo pipeline with reproducible success and failure modes
-- Run list and run detail APIs
+- Configurable Null, Duplicate, Freshness, and Row-count anomaly checks
+- Demo pipeline with reproducible run and data-quality failure modes
+- Run list, detail, and quality-check APIs
 - Automated API tests
 
 ## Quick start
@@ -40,10 +41,22 @@ Create a failed run:
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?simulate_failure=true"
 ```
 
+Create a run with deterministic data-quality failures:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?data_scenario=quality_failure"
+```
+
 List runs:
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/runs"
+```
+
+View a run's quality-check results:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/runs/1/checks"
 ```
 
 ## Test
@@ -63,6 +76,4 @@ tests/               API tests
 
 ## Next milestone
 
-Implement configurable Null, Duplicate, Freshness, and Row-count anomaly checks, persist their
-results, and add test fixtures for normal and abnormal datasets.
-
+Build the Streamlit dashboard for the latest status, run history, and quality-check results.

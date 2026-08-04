@@ -1,18 +1,44 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
+from typing import Literal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pipeguard.models import PipelineRun, RunStatus
+from pipeguard.config import get_settings
+from pipeguard.models import PipelineRun, QualityCheck, RunStatus
+from pipeguard.services.quality_checks import (
+    QualityCheckResult,
+    check_duplicate_rate,
+    check_freshness,
+    check_null_rate,
+    check_row_count_anomaly,
+)
 
-DEMO_ROWS = [
-    {"event_id": 1, "value": 12.5},
-    {"event_id": 2, "value": 15.0},
-    {"event_id": 3, "value": 11.75},
-]
+DataScenario = Literal["normal", "quality_failure"]
 
 
-def run_demo_pipeline(db: Session, *, simulate_failure: bool = False) -> PipelineRun:
+def demo_rows(scenario: DataScenario, *, now: datetime) -> list[dict[str, object]]:
+    if scenario == "quality_failure":
+        stale_time = now - timedelta(hours=48)
+        return [
+            {"event_id": 1, "value": None, "event_time": stale_time},
+            {"event_id": 1, "value": None, "event_time": stale_time},
+        ]
+
+    return [
+        {"event_id": 1, "value": 12.5, "event_time": now - timedelta(minutes=5)},
+        {"event_id": 2, "value": 15.0, "event_time": now - timedelta(minutes=3)},
+        {"event_id": 3, "value": 11.75, "event_time": now - timedelta(minutes=1)},
+    ]
+
+
+def run_demo_pipeline(
+    db: Session,
+    *,
+    simulate_failure: bool = False,
+    data_scenario: DataScenario = "normal",
+) -> PipelineRun:
     started_at = datetime.now(UTC)
     timer = perf_counter()
     run = PipelineRun(
@@ -28,7 +54,9 @@ def run_demo_pipeline(db: Session, *, simulate_failure: bool = False) -> Pipelin
         if simulate_failure:
             raise RuntimeError("Simulated upstream API timeout")
 
-        run.rows_processed = len(DEMO_ROWS)
+        rows = demo_rows(data_scenario, now=started_at)
+        run.rows_processed = len(rows)
+        _persist_quality_checks(db, run=run, rows=rows, now=started_at)
         run.status = RunStatus.success
     except Exception as exc:
         run.status = RunStatus.failed
@@ -43,3 +71,53 @@ def run_demo_pipeline(db: Session, *, simulate_failure: bool = False) -> Pipelin
 
     return run
 
+
+def _persist_quality_checks(
+    db: Session,
+    *,
+    run: PipelineRun,
+    rows: list[dict[str, object]],
+    now: datetime,
+) -> None:
+    settings = get_settings()
+    historical_counts = list(
+        db.scalars(
+            select(PipelineRun.rows_processed)
+            .where(
+                PipelineRun.pipeline_name == run.pipeline_name,
+                PipelineRun.status == RunStatus.success,
+            )
+            .where(PipelineRun.id != run.id)
+            .order_by(PipelineRun.started_at.desc())
+            .limit(settings.row_count_history_size)
+        )
+    )
+    results = [
+        check_null_rate(rows, field="value", threshold=settings.null_rate_threshold),
+        check_duplicate_rate(
+            rows,
+            key_fields=("event_id",),
+            threshold=settings.duplicate_rate_threshold,
+        ),
+        check_freshness(rows, threshold_hours=settings.freshness_hours_threshold, now=now),
+        check_row_count_anomaly(
+            len(rows),
+            historical_counts=historical_counts,
+            threshold=settings.row_count_drop_threshold,
+        ),
+    ]
+    db.add_all([_to_quality_check(run.id, result, now=now) for result in results])
+
+
+def _to_quality_check(
+    run_id: int, result: QualityCheckResult, *, now: datetime
+) -> QualityCheck:
+    return QualityCheck(
+        run_id=run_id,
+        check_name=result.check_name,
+        metric_value=result.metric_value,
+        threshold=result.threshold,
+        status=result.status,
+        message=result.message,
+        created_at=now,
+    )

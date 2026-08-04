@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeguard.database import get_db
-from pipeguard.models import PipelineRun
-from pipeguard.schemas import PipelineRunResponse
-from pipeguard.services.pipeline import run_demo_pipeline
+from pipeguard.models import PipelineRun, QualityCheck
+from pipeguard.schemas import PipelineRunResponse, QualityCheckResponse
+from pipeguard.services.pipeline import DataScenario, run_demo_pipeline
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -17,8 +17,13 @@ DbSession = Annotated[Session, Depends(get_db)]
 def create_demo_run(
     db: DbSession,
     simulate_failure: bool = Query(default=False),
+    data_scenario: Annotated[DataScenario, Query()] = "normal",
 ) -> PipelineRun:
-    return run_demo_pipeline(db, simulate_failure=simulate_failure)
+    return run_demo_pipeline(
+        db,
+        simulate_failure=simulate_failure,
+        data_scenario=data_scenario,
+    )
 
 
 @router.get("", response_model=list[PipelineRunResponse])
@@ -34,3 +39,10 @@ def get_run(run_id: int, db: DbSession) -> PipelineRun:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
 
+
+@router.get("/{run_id}/checks", response_model=list[QualityCheckResponse])
+def get_run_checks(run_id: int, db: DbSession) -> list[QualityCheck]:
+    if db.get(PipelineRun, run_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    statement = select(QualityCheck).where(QualityCheck.run_id == run_id).order_by(QualityCheck.id)
+    return list(db.scalars(statement))

@@ -22,3 +22,15 @@ class PipelineRunResponse(BaseModel):
     error_type: str | None
     error_message: str | None
 
+
+class QualityCheckResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    check_name: str
+    metric_value: float
+    threshold: float
+    status: str
+    message: str
+    created_at: datetime
