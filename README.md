@@ -1,22 +1,84 @@
 # PipeGuard
 
-PipeGuard is a lightweight data pipeline monitoring platform for individual developers and
-small data teams. It records pipeline runs, exposes run history through an API, and will add
-data-quality checks and AI-assisted incident analysis in later milestones.
+> A lightweight data-pipeline monitoring platform that detects execution and data-quality incidents, then produces actionable incident guidance.
 
-## Current milestone
+[Open the live dashboard](https://pipeguard-dashboard-iiub.onrender.com) · [Open the API](https://pipeguard-fn1b.onrender.com) · [API health check](https://pipeguard-fn1b.onrender.com/health) · [Interactive API docs](https://pipeguard-fn1b.onrender.com/docs)
 
-The first runnable slice includes:
+## Why PipeGuard?
 
-- FastAPI application with a health endpoint
-- SQLite-backed run persistence (PostgreSQL-ready via `DATABASE_URL`)
-- Core tables for pipeline runs, quality checks, and incident analyses
-- Configurable Null, Duplicate, Freshness, and Row-count anomaly checks
-- Demo pipeline with reproducible run and data-quality failure modes
-- Run list, detail, and quality-check APIs
-- Automated API tests
+Individual developers and small data teams often run ingestion jobs without dedicated observability. A failed run, stale data, duplicate records, or a sudden row-count drop may not be noticed until a downstream user reports it. PipeGuard records each pipeline run, evaluates practical quality rules, and makes failures easy to inspect from one dashboard.
 
-## Quick start
+## Features
+
+- Records successful and failed pipeline runs, including duration, processed rows, and error data.
+- Runs four configurable data-quality checks: null rate, duplicate rate, freshness, and row-count anomaly.
+- Persists run history, quality-check results, and incident analyses in PostgreSQL in production.
+- Provides three reproducible demo scenarios: normal, pipeline failure, and quality issue.
+- Offers a Streamlit dashboard with run KPIs, run history, quality details, and incident analysis.
+- Produces structured, rule-based incident summaries with severity, likely causes, and recommended next steps.
+- Includes Docker configuration and GitHub Actions CI for linting and automated tests.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    D["Streamlit Dashboard"] -->|"HTTPS"| A["FastAPI API"]
+    A --> P["Demo Pipeline Runner"]
+    P --> Q["Quality Checks"]
+    Q --> A
+    A --> DB[("PostgreSQL")]
+    A --> I["Incident Analyzer"]
+    I --> DB
+```
+
+## Live demo
+
+1. Open the [PipeGuard Dashboard](https://pipeguard-dashboard-iiub.onrender.com).
+2. Select `normal`, `pipeline_failure`, or `quality_issue`.
+3. Click **Run Pipeline**.
+4. Review the resulting run, quality-check outcomes, and—when relevant—**Incident Analysis**.
+
+> Render free instances may spin down after inactivity. The first request after idle time can take roughly a minute to start.
+
+## Tech stack
+
+| Area | Technology |
+| --- | --- |
+| Backend API | Python, FastAPI, SQLAlchemy |
+| Dashboard | Streamlit, Pandas |
+| Data store | PostgreSQL (Render), SQLite for local development |
+| Quality checks | Configurable rule-based Python checks |
+| Incident analysis | Structured rule-based fallback |
+| Containers | Docker, Docker Compose |
+| CI | GitHub Actions, Ruff, pytest |
+| Hosting | Render |
+
+## API endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Service health check |
+| `POST` | `/runs/demo` | Run the demonstration pipeline |
+| `GET` | `/runs` | List pipeline-run history |
+| `GET` | `/runs/{id}` | Get one pipeline run |
+| `GET` | `/runs/{id}/checks` | Get that run's quality-check results |
+| `POST` | `/runs/{id}/analyze` | Create structured incident analysis |
+
+To simulate a quality issue, call:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?data_scenario=quality_failure"
+```
+
+To simulate a pipeline failure, call:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?simulate_failure=true"
+```
+
+## Run locally
+
+### API
 
 ```powershell
 python -m venv .venv
@@ -25,55 +87,72 @@ python -m pip install -e ".[dev]"
 uvicorn pipeguard.main:app --app-dir backend --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` for the interactive API documentation.
+The API is then available at `http://127.0.0.1:8000`; OpenAPI docs are at `http://127.0.0.1:8000/docs`.
 
-## Demo flow
+### Dashboard
 
-Create a successful run:
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo"
-```
-
-Create a failed run:
+In a second terminal, with the API running:
 
 ```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?simulate_failure=true"
+python -m pip install -r dashboard/requirements.txt
+$env:API_BASE_URL="http://127.0.0.1:8000"
+streamlit run dashboard/app.py
 ```
 
-Create a run with deterministic data-quality failures:
+Open `http://127.0.0.1:8501`.
+
+## Run with Docker
 
 ```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?data_scenario=quality_failure"
+docker compose up --build
 ```
 
-List runs:
+- API: `http://127.0.0.1:8000`
+- Dashboard: `http://127.0.0.1:8501`
 
-```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/runs"
+The Docker Compose setup uses a named volume for local SQLite persistence. Production uses a PostgreSQL `DATABASE_URL` configured in Render.
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust values as needed:
+
+```text
+DATABASE_URL=sqlite:///./pipeguard.db
+NULL_RATE_THRESHOLD=0.05
+DUPLICATE_RATE_THRESHOLD=0.01
+FRESHNESS_HOURS_THRESHOLD=24
+ROW_COUNT_DROP_THRESHOLD=0.30
+ROW_COUNT_HISTORY_SIZE=5
 ```
 
-View a run's quality-check results:
-
-```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/runs/1/checks"
-```
-
-## Test
+## Testing and CI
 
 ```powershell
 pytest
-ruff check .
+ruff check backend tests
 ```
+
+GitHub Actions runs the same checks for pull requests and pushes to `main`.
 
 ## Project structure
 
 ```text
-backend/pipeguard/   FastAPI application and domain logic
-docs/                Product and schema notes
-tests/               API tests
+backend/pipeguard/       FastAPI application, models, checks, and analysis service
+dashboard/               Streamlit monitoring dashboard
+tests/                   API and quality-check test suite
+.github/workflows/       Continuous integration workflow
+Dockerfile.api           API image definition
+Dockerfile.dashboard     Dashboard image definition
+docker-compose.yml       Local multi-container setup
 ```
 
-## Next milestone
+## Limitations and future work
 
-Build the Streamlit dashboard for the latest status, run history, and quality-check results.
+- Incident analysis currently uses a deterministic rule-based fallback, not a live LLM call.
+- The demo supports one sample pipeline; multi-pipeline registration is future work.
+- Authentication, alerting, schema-drift detection, and automated remediation are not yet included.
+- Planned improvements include OpenAI-powered analysis, Slack/email alerts, configurable thresholds in the UI, and Prometheus/Grafana metrics.
+
+## Resume bullet
+
+Built and deployed PipeGuard, a containerized data-pipeline monitoring platform using FastAPI, Streamlit, PostgreSQL, Docker, and GitHub Actions; implemented configurable data-quality checks, run history, and structured incident guidance for reproducible pipeline-failure scenarios.
