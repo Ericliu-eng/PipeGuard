@@ -90,3 +90,36 @@ def test_analyze_unknown_run_returns_404(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Run not found"}
+
+
+def test_repeated_analyze_returns_the_stored_analysis(client: TestClient) -> None:
+    run_id = client.post("/runs/demo?simulate_failure=true").json()["id"]
+
+    created = client.post(f"/runs/{run_id}/analyze")
+    repeated = client.post(f"/runs/{run_id}/analyze")
+
+    assert created.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == created.json()["id"]
+
+
+def test_get_analysis_returns_404_until_the_run_is_analyzed(client: TestClient) -> None:
+    run_id = client.post("/runs/demo?simulate_failure=true").json()["id"]
+
+    missing = client.get(f"/runs/{run_id}/analysis")
+
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Analysis not found"}
+
+    created = client.post(f"/runs/{run_id}/analyze")
+    stored = client.get(f"/runs/{run_id}/analysis")
+
+    assert stored.status_code == 200
+    assert stored.json()["id"] == created.json()["id"]
+
+
+def test_get_analysis_for_unknown_run_returns_404(client: TestClient) -> None:
+    response = client.get("/runs/999/analysis")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Run not found"}
