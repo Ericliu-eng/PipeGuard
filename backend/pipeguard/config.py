@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     freshness_hours_threshold: float = 24.0
     row_count_drop_threshold: float = 0.30
     row_count_history_size: int = 5
+    # Newest runs to keep; older ones are pruned with their checks and analyses.
+    # Set to 0 to disable pruning and retain every run.
+    run_retention_limit: int = 500
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
