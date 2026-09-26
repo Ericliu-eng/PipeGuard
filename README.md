@@ -62,7 +62,12 @@ flowchart LR
 | `GET` | `/runs` | List pipeline-run history |
 | `GET` | `/runs/{id}` | Get one pipeline run |
 | `GET` | `/runs/{id}/checks` | Get that run's quality-check results |
+| `GET` | `/runs/{id}/analysis` | Get the stored incident analysis |
 | `POST` | `/runs/{id}/analyze` | Create structured incident analysis |
+
+`POST /runs/{id}/analyze` is idempotent: it returns `201` with a new analysis the first
+time, and `200` with the stored analysis on later calls. A finished run and its checks no
+longer change, so repeat calls would otherwise only duplicate rows.
 
 To simulate a quality issue, call:
 
@@ -123,7 +128,12 @@ DUPLICATE_RATE_THRESHOLD=0.01
 FRESHNESS_HOURS_THRESHOLD=24
 ROW_COUNT_DROP_THRESHOLD=0.30
 ROW_COUNT_HISTORY_SIZE=5
+RUN_RETENTION_LIMIT=500
 ```
+
+`RUN_RETENTION_LIMIT` bounds stored history: after each run, older runs beyond the newest
+500 are deleted along with their quality checks and incident analyses. Set it to `0` to
+keep every run.
 
 ## Testing and CI
 
