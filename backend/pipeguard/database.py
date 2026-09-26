@@ -13,7 +13,10 @@ class Base(DeclarativeBase):
 def _engine_kwargs(database_url: str) -> dict[str, object]:
     if database_url.startswith("sqlite"):
         return {"connect_args": {"check_same_thread": False}}
-    return {}
+    # Managed Postgres instances drop idle connections, and a dead connection is
+    # only detected when it is used. Validate on checkout and retire old ones so a
+    # request after an idle period does not fail with OperationalError.
+    return {"pool_pre_ping": True, "pool_recycle": 300}
 
 
 settings = get_settings()
