@@ -69,7 +69,38 @@ def run_demo_pipeline(
         db.commit()
         db.refresh(run)
 
+    _prune_old_runs(db, limit=get_settings().run_retention_limit)
+
     return run
+
+
+def _prune_old_runs(db: Session, *, limit: int) -> None:
+    """Keep only the newest ``limit`` runs, deleting older ones.
+
+    Runs are removed through the ORM rather than a bulk DELETE so the
+    ``delete-orphan`` cascade also removes their quality checks and incident
+    analyses. A bulk statement would bypass that cascade and orphan those rows,
+    because the foreign keys carry no database-level ``ON DELETE CASCADE``.
+    """
+    if limit <= 0:
+        return
+
+    newest = (
+        select(PipelineRun.id)
+        .order_by(PipelineRun.started_at.desc(), PipelineRun.id.desc())
+        .limit(limit)
+        .subquery()
+    )
+    stale_runs = list(
+        db.scalars(select(PipelineRun).where(PipelineRun.id.not_in(select(newest.c.id))))
+    )
+
+    if not stale_runs:
+        return
+
+    for stale_run in stale_runs:
+        db.delete(stale_run)
+    db.commit()
 
 
 def _persist_quality_checks(

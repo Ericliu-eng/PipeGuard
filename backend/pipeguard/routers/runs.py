@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -52,12 +52,41 @@ def get_run_checks(run_id: int, db: DbSession) -> list[QualityCheck]:
     statement = select(QualityCheck).where(QualityCheck.run_id == run_id).order_by(QualityCheck.id)
     return list(db.scalars(statement))
 
+def _latest_analysis(db: Session, run_id: int) -> IncidentAnalysis | None:
+    statement = (
+        select(IncidentAnalysis)
+        .where(IncidentAnalysis.run_id == run_id)
+        .order_by(IncidentAnalysis.id.desc())
+        .limit(1)
+    )
+    return db.scalars(statement).first()
+
+
+@router.get("/{run_id}/analysis", response_model=IncidentAnalysisResponse)
+def get_run_analysis(run_id: int, db: DbSession) -> IncidentAnalysis:
+    if db.get(PipelineRun, run_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+
+    analysis = _latest_analysis(db, run_id)
+
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found",
+        )
+
+    return analysis
+
+
 @router.post(
     "/{run_id}/analyze",
     response_model=IncidentAnalysisResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def analyze_run(run_id: int, db: DbSession) -> IncidentAnalysis:
+def analyze_run(run_id: int, db: DbSession, response: Response) -> IncidentAnalysis:
     run = db.get(PipelineRun, run_id)
 
     if run is None:
@@ -65,6 +94,14 @@ def analyze_run(run_id: int, db: DbSession) -> IncidentAnalysis:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Run not found",
         )
+
+    existing = _latest_analysis(db, run_id)
+
+    if existing is not None:
+        # A finished run and its checks never change, so re-analyzing would only
+        # duplicate rows. Return the stored analysis instead of creating another.
+        response.status_code = status.HTTP_200_OK
+        return existing
 
     statement = (
         select(QualityCheck)
