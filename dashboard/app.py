@@ -34,48 +34,95 @@ def analyze_run(run_id: int) -> dict[str, Any] | None:
         st.error(f"Failed to analyze pipeline run: {exc}")
         return None
 
+# Streamlit reruns this whole script on every interaction, so the read endpoints are
+# cached briefly to avoid refetching unchanged history. Triggering a run clears the
+# cache, so the TTL only bounds how long a run started elsewhere stays invisible.
+# Only successful calls are cached: an exception propagates and is rendered by the
+# caller, so a transient API outage is retried on the next rerun instead of being
+# cached as an empty result.
+CACHE_TTL_SECONDS = 30
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_runs() -> list[dict[str, Any]]:
+    response = requests.get(
+        f"{API_BASE_URL}/runs",
+        timeout=10,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+
+    if not isinstance(data, list):
+        raise ValueError("Unexpected response format from GET /runs.")
+
+    return data
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_run_analysis(run_id: int) -> dict[str, Any] | None:
+    response = requests.get(
+        f"{API_BASE_URL}/runs/{run_id}/analysis",
+        timeout=10,
+    )
+
+    if response.status_code == 404:
+        return None
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_run_checks(run_id: int) -> list[dict[str, Any]]:
+    response = requests.get(
+        f"{API_BASE_URL}/runs/{run_id}/checks",
+        timeout=10,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+
+    if not isinstance(data, list):
+        raise ValueError("Unexpected response format from checks API.")
+
+    return data
+
+
+def clear_run_caches() -> None:
+    fetch_runs.clear()
+    fetch_run_checks.clear()
+    fetch_run_analysis.clear()
+
+
+def get_stored_analysis(run_id: int) -> dict[str, Any] | None:
+    try:
+        return fetch_run_analysis(run_id)
+
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Failed to load incident analysis: {exc}")
+        return None
+
+
 def get_runs() -> list[dict[str, Any]]:
     try:
-        response = requests.get(
-            f"{API_BASE_URL}/runs",
-            timeout=10,
-        )
-        response.raise_for_status()
-
-        data = response.json()
-
-        if isinstance(data, list):
-            return data
-
-        st.error("Unexpected response format from GET /runs.")
-        return []
+        return fetch_runs()
 
     except requests.exceptions.ConnectionError:
         st.error("Cannot connect to the FastAPI backend.")
         return []
 
-    except requests.exceptions.RequestException as exc:
+    except (requests.exceptions.RequestException, ValueError) as exc:
         st.error(f"Failed to load pipeline runs: {exc}")
         return []
 
 
 def get_run_checks(run_id: int) -> list[dict[str, Any]]:
     try:
-        response = requests.get(
-            f"{API_BASE_URL}/runs/{run_id}/checks",
-            timeout=10,
-        )
-        response.raise_for_status()
+        return fetch_run_checks(run_id)
 
-        data = response.json()
-
-        if isinstance(data, list):
-            return data
-
-        st.error("Unexpected response format from checks API.")
-        return []
-
-    except requests.exceptions.RequestException as exc:
+    except (requests.exceptions.RequestException, ValueError) as exc:
         st.error(f"Failed to load quality checks: {exc}")
         return []
 
@@ -113,6 +160,7 @@ if st.button("Run Pipeline"):
 
     if result is not None:
         st.success("Demo pipeline completed.")
+        clear_run_caches()
         st.rerun()
 
 runs = get_runs()
@@ -183,24 +231,33 @@ else:
         )
         st.subheader("Incident Analysis")
 
-        if st.button("Analyze Selected Run"):
-            analysis = analyze_run(selected_run_id)
+        # Read the stored analysis on every rerun so it stays visible after the
+        # script reruns, rather than only right after the button is clicked.
+        analysis = get_stored_analysis(selected_run_id)
 
-            if analysis is not None:
+        if st.button("Analyze Selected Run"):
+            created = analyze_run(selected_run_id)
+
+            if created is not None:
+                analysis = created
+                fetch_run_analysis.clear()
                 st.success("Incident analysis completed.")
 
-                st.write("**Severity:**", analysis["severity"])
-                st.write("**Summary:**", analysis["summary"])
-                likely_causes = json.loads(analysis["likely_causes"])
-                recommended_steps = json.loads(analysis["recommended_steps"])
+        if analysis is None:
+            st.info("This run has not been analyzed yet.")
+        else:
+            st.write("**Severity:**", analysis["severity"])
+            st.write("**Summary:**", analysis["summary"])
+            likely_causes = json.loads(analysis["likely_causes"])
+            recommended_steps = json.loads(analysis["recommended_steps"])
 
-                st.write("**Likely Causes:**")
-                for cause in likely_causes:
-                    st.write(f"- {cause}")
+            st.write("**Likely Causes:**")
+            for cause in likely_causes:
+                st.write(f"- {cause}")
 
-                st.write("**Recommended Steps:**")
-                for step in recommended_steps:
-                    st.write(f"- {step}")
-                st.write("**Analysis Model:**", analysis["model_name"])
+            st.write("**Recommended Steps:**")
+            for step in recommended_steps:
+                st.write(f"- {step}")
+            st.write("**Analysis Model:**", analysis["model_name"])
 
 
