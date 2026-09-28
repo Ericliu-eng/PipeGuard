@@ -35,7 +35,15 @@ def _engine_kwargs(database_url: str) -> dict[str, object]:
     # Managed Postgres instances drop idle connections, and a dead connection is
     # only detected when it is used. Validate on checkout and retire old ones so a
     # request after an idle period does not fail with OperationalError.
-    return {"pool_pre_ping": True, "pool_recycle": 300}
+    #
+    # connect_timeout bounds how long an unreachable host can stall a connection
+    # attempt. Without it a deleted database made startup hang indefinitely, which
+    # reads as "the service never responds" rather than as an error.
+    return {
+        "connect_args": {"connect_timeout": 10},
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
 
 settings = get_settings()

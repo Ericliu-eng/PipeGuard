@@ -13,6 +13,8 @@ def test_postgres_url_validates_pooled_connections() -> None:
 
     assert kwargs["pool_pre_ping"] is True
     assert kwargs["pool_recycle"] == 300
+    # Bounded so an unreachable host errors instead of stalling forever.
+    assert kwargs["connect_args"]["connect_timeout"] == 10
 
 
 @pytest.mark.parametrize(
