@@ -4,6 +4,13 @@
 
 [Open the live dashboard](https://pipeguard-dashboard-iiub.onrender.com) · [Open the API](https://pipeguard-fn1b.onrender.com) · [API health check](https://pipeguard-fn1b.onrender.com/health) · [Interactive API docs](https://pipeguard-fn1b.onrender.com/docs)
 
+<!-- A recording of the dashboard belongs here: it loads instantly, while the links
+     above sit behind a free-tier cold start of roughly a minute. Record the three
+     scenarios end to end, save as docs/demo.gif, and reference it with:
+     ![PipeGuard dashboard](docs/demo.gif) -->
+
+> Free instances sleep when idle, so the first request can take about a minute.
+
 ## Why PipeGuard?
 
 Individual developers and small data teams often run ingestion jobs without dedicated observability. A failed run, stale data, duplicate records, or a sudden row-count drop may not be noticed until a downstream user reports it. PipeGuard records each pipeline run, evaluates practical quality rules, and makes failures easy to inspect from one dashboard.
@@ -13,10 +20,10 @@ Individual developers and small data teams often run ingestion jobs without dedi
 - Records successful and failed pipeline runs, including duration, processed rows, and error data.
 - Runs four configurable data-quality checks: null rate, duplicate rate, freshness, and row-count anomaly.
 - Persists run history, quality-check results, and incident analyses in PostgreSQL in production.
-- Provides three reproducible demo scenarios: normal, pipeline failure, and quality issue.
+- Provides three reproducible demo scenarios over a synthetic dataset: normal, pipeline failure, and quality issue.
 - Offers a Streamlit dashboard with run KPIs, run history, quality details, and incident analysis.
 - Produces structured, rule-based incident summaries with severity, likely causes, and recommended next steps.
-- Includes Docker configuration and GitHub Actions CI for linting and automated tests.
+- Includes Docker configuration and GitHub Actions CI that lints and runs the suite against both SQLite and PostgreSQL.
 
 ## Architecture
 
@@ -48,7 +55,7 @@ flowchart LR
 | Dashboard | Streamlit, Pandas |
 | Data store | PostgreSQL (Neon) via psycopg3, SQLite for local development |
 | Quality checks | Configurable rule-based Python checks |
-| Incident analysis | Structured rule-based fallback |
+| Incident analysis | Deterministic rule-based summaries |
 | Containers | Docker, Docker Compose |
 | CI | GitHub Actions, Ruff, pytest |
 | Hosting | Render |
@@ -168,7 +175,7 @@ cannot catch a driver or dialect problem that would break production.
 ```text
 backend/pipeguard/       FastAPI application, models, checks, and analysis service
 dashboard/               Streamlit monitoring dashboard
-tests/                   API and quality-check test suite
+tests/                   API, health, quality-check, and retention test suite
 .github/workflows/       Continuous integration workflow
 Dockerfile.api           API image definition
 Dockerfile.dashboard     Dashboard image definition
@@ -177,8 +184,13 @@ docker-compose.yml       Local multi-container setup
 
 ## Limitations and future work
 
-- Incident analysis currently uses a deterministic rule-based fallback, not a live LLM call.
+- The bundled pipeline generates synthetic rows rather than reading a real source. It exists to
+  exercise the monitoring path deterministically, so each scenario reproduces exactly; accepting
+  runs reported by a real pipeline is the next step.
+- Incident analysis uses deterministic rules, not a live LLM call.
 - The demo supports one sample pipeline; multi-pipeline registration is future work.
-- Authentication, alerting, schema-drift detection, and automated remediation are not yet included.
+- Authentication, rate limiting, schema-drift detection, and automated remediation are not yet
+  included. `/health` can report a failure now, but nothing watches it and raises an alert — which
+  is how an earlier outage went unnoticed for two months.
 - Planned improvements include OpenAI-powered analysis, Slack/email alerts, configurable thresholds in the UI, and Prometheus/Grafana metrics.
 
