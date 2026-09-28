@@ -57,13 +57,18 @@ flowchart LR
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Service health check |
+| `GET` | `/health` | Service health check, including a database probe |
 | `POST` | `/runs/demo` | Run the demonstration pipeline |
 | `GET` | `/runs` | List pipeline-run history |
 | `GET` | `/runs/{id}` | Get one pipeline run |
 | `GET` | `/runs/{id}/checks` | Get that run's quality-check results |
 | `GET` | `/runs/{id}/analysis` | Get the stored incident analysis |
 | `POST` | `/runs/{id}/analyze` | Create structured incident analysis |
+
+`GET /health` runs a query against the database rather than returning a constant, and
+answers `503` with `"status": "degraded"` when that query fails. A health check that
+cannot fail is not a health check: an earlier constant `200` reported this service as
+healthy for two months while the database behind it no longer existed.
 
 `POST /runs/{id}/analyze` is idempotent: it returns `201` with a new analysis the first
 time, and `200` with the stored analysis on later calls. A finished run and its checks no
@@ -177,6 +182,3 @@ docker-compose.yml       Local multi-container setup
 - Authentication, alerting, schema-drift detection, and automated remediation are not yet included.
 - Planned improvements include OpenAI-powered analysis, Slack/email alerts, configurable thresholds in the UI, and Prometheus/Grafana metrics.
 
-## Resume bullet
-
-Built and deployed PipeGuard, a containerized data-pipeline monitoring platform using FastAPI, Streamlit, PostgreSQL, Docker, and GitHub Actions; implemented configurable data-quality checks, run history, and structured incident guidance for reproducible pipeline-failure scenarios.
