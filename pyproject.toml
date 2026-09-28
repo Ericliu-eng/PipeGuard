@@ -8,19 +8,24 @@ version = "0.1.0"
 description = "Lightweight data pipeline monitoring and incident analysis platform"
 readme = "README.md"
 requires-python = ">=3.11"
+# Upper bounds stop at the next minor release, not the next major one. A minor
+# release is enough to change behaviour: SQLAlchemy 2.1 switched the default
+# PostgreSQL driver from psycopg2 to psycopg3, and the old ">=2.0,<3.0" range let
+# a fresh production install pick it up and crash on an import the code never
+# asked for. Patch releases still float so security fixes arrive without an edit.
 dependencies = [
-  "fastapi>=0.115,<1.0",
-  "pydantic-settings>=2.5,<3.0",
-  "sqlalchemy>=2.0,<3.0",
-  "uvicorn[standard]>=0.30,<1.0",
-  "psycopg2-binary>=2.9,<3.0",
+  "fastapi>=0.141,<0.142",
+  "pydantic-settings>=2.15,<2.16",
+  "sqlalchemy>=2.1,<2.2",
+  "uvicorn[standard]>=0.52,<0.53",
+  "psycopg[binary]>=3.3,<3.4",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.27,<1.0",
-  "pytest>=8.0,<9.0",
-  "ruff>=0.8,<1.0",
+  "httpx>=0.28,<0.29",
+  "pytest>=8.4,<8.5",
+  "ruff>=0.16,<0.17",
 ]
 
 [tool.hatch.build.targets.wheel]
