@@ -46,7 +46,7 @@ flowchart LR
 | --- | --- |
 | Backend API | Python, FastAPI, SQLAlchemy |
 | Dashboard | Streamlit, Pandas |
-| Data store | PostgreSQL (Render), SQLite for local development |
+| Data store | PostgreSQL (Neon) via psycopg3, SQLite for local development |
 | Quality checks | Configurable rule-based Python checks |
 | Incident analysis | Structured rule-based fallback |
 | Containers | Docker, Docker Compose |
@@ -115,7 +115,10 @@ docker compose up --build
 - API: `http://127.0.0.1:8000`
 - Dashboard: `http://127.0.0.1:8501`
 
-The Docker Compose setup uses a named volume for local SQLite persistence. Production uses a PostgreSQL `DATABASE_URL` configured in Render.
+The Docker Compose setup uses a named volume for local SQLite persistence. Production
+runs on Render with `DATABASE_URL` pointing at a Neon PostgreSQL instance. Any
+`postgresql://` URL is normalized to the psycopg3 driver at startup, so the value
+can be pasted from the provider unedited.
 
 ## Configuration
 
@@ -142,7 +145,18 @@ pytest
 ruff check backend tests
 ```
 
-GitHub Actions runs the same checks for pull requests and pushes to `main`.
+The suite runs against in-memory SQLite by default. Point it at a real PostgreSQL
+to exercise the production dialect and driver:
+
+```powershell
+docker run -d --name pipeguard-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=pipeguard_test -p 55432:5432 postgres:18
+$env:TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:55432/pipeguard_test"
+pytest
+```
+
+GitHub Actions runs Ruff and then the full suite twice, once against each backend.
+Both runs matter: a SQLite-only suite never loads the PostgreSQL driver, so it
+cannot catch a driver or dialect problem that would break production.
 
 ## Project structure
 

@@ -1,26 +1,9 @@
-from collections.abc import Generator
-
 import pytest
-from pipeguard.database import Base
 from pipeguard.models import IncidentAnalysis, PipelineRun, QualityCheck
 from pipeguard.services.incident_analysis import build_incident_analysis
 from pipeguard.services.pipeline import _prune_old_runs, run_demo_pipeline
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
-
-
-@pytest.fixture
-def db() -> Generator[Session, None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    with Session(engine, autoflush=False, expire_on_commit=False) as session:
-        yield session
-    Base.metadata.drop_all(bind=engine)
 
 
 def _count(db: Session, model: type) -> int:
