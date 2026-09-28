@@ -18,6 +18,14 @@ class _UnreachableSession:
         pass
 
 
+def test_root_redirects_to_the_docs(client: TestClient) -> None:
+    # The README links here as "open the API"; it used to answer 404.
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
 def test_health_reports_ok_when_the_database_answers(client: TestClient) -> None:
     response = client.get("/health")
 

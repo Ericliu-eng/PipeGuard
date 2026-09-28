@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -34,6 +35,17 @@ async def lifespan(_: FastAPI):
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
 app.include_router(runs_router)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Send the bare host to the API docs.
+
+    The README advertises this host as "open the API", and it answered 404 —
+    there was no route here at all. The platform's own probes hit it too, so the
+    logs filled with 404s from requests nothing had asked a question of.
+    """
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
