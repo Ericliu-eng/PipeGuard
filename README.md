@@ -65,6 +65,7 @@ flowchart LR
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Service health check, including a database probe |
+| `POST` | `/runs` | Report a run executed by an external pipeline |
 | `POST` | `/runs/demo` | Run the demonstration pipeline |
 | `GET` | `/runs` | List pipeline-run history |
 | `GET` | `/runs/{id}` | Get one pipeline run |
@@ -76,6 +77,35 @@ flowchart LR
 answers `503` with `"status": "degraded"` when that query fails. A health check that
 cannot fail is not a health check: an earlier constant `200` reported this service as
 healthy for two months while the database behind it no longer existed.
+
+`POST /runs` accepts a run from a real pipeline, so PipeGuard is not limited to the
+bundled demo. The reporter sends what only it knows — its own timings, row count and
+check results — and the row-count anomaly is computed here instead, from run history the
+reporter has no way to see. An in-pipeline check asserts something about one batch; a
+trend needs someone who remembers the previous ones.
+
+It requires `INGEST_API_KEY` in an `X-API-Key` header. With no key configured the
+endpoint answers `503` rather than accepting writes: it stores rows on behalf of a caller,
+so an unset secret has to fail closed.
+
+```json
+{
+  "pipeline_name": "market_data_lakehouse_pipeline",
+  "status": "SUCCESS",
+  "started_at": "2026-09-28T12:00:00Z",
+  "finished_at": "2026-09-28T12:00:04Z",
+  "rows_processed": 500,
+  "checks": [
+    {
+      "check_name": "not_null_ts",
+      "status": "PASS",
+      "metric_value": 0.0,
+      "threshold": 0.0,
+      "message": "market_bars.ts has no nulls."
+    }
+  ]
+}
+```
 
 `POST /runs/{id}/analyze` is idempotent: it returns `201` with a new analysis the first
 time, and `200` with the stored analysis on later calls. A finished run and its checks no
@@ -144,11 +174,16 @@ FRESHNESS_HOURS_THRESHOLD=24
 ROW_COUNT_DROP_THRESHOLD=0.30
 ROW_COUNT_HISTORY_SIZE=5
 RUN_RETENTION_LIMIT=500
+INGEST_API_KEY=
 ```
 
-`RUN_RETENTION_LIMIT` bounds stored history: after each run, older runs beyond the newest
-500 are deleted along with their quality checks and incident analyses. Set it to `0` to
-keep every run.
+`RUN_RETENTION_LIMIT` bounds stored history: after each run, runs older than the newest
+500 *for that pipeline* are deleted along with their quality checks and incident analyses.
+The budget is per pipeline rather than shared, so a pipeline that runs often cannot evict
+the history of one that runs rarely. Set it to `0` to keep every run.
+
+`INGEST_API_KEY` is the shared secret for `POST /runs`. Leaving it empty disables that
+endpoint.
 
 ## Testing and CI
 
