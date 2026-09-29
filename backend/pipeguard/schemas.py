@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -8,6 +9,40 @@ class HealthResponse(BaseModel):
     service: str
     environment: str
     database: str
+
+
+class QualityCheckReport(BaseModel):
+    """One check a reporting pipeline already evaluated for itself."""
+
+    check_name: str = Field(min_length=1, max_length=120)
+    status: Literal["PASS", "WARN", "FAIL"]
+    metric_value: float
+    threshold: float
+    message: str = Field(min_length=1)
+
+
+class RunReportRequest(BaseModel):
+    """A finished run, reported by the pipeline that ran it.
+
+    Only the checks a pipeline can evaluate from its own data belong here.
+    Anything derived from run history — the row-count anomaly, for one — is
+    computed on this side, because a pipeline cannot see its own past runs.
+    """
+
+    pipeline_name: str = Field(min_length=1, max_length=120)
+    status: Literal["SUCCESS", "FAILED"]
+    started_at: datetime
+    finished_at: datetime
+    rows_processed: int = Field(ge=0)
+    error_type: str | None = Field(default=None, max_length=120)
+    error_message: str | None = None
+    checks: list[QualityCheckReport] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_ordering(self) -> Self:
+        if self.finished_at < self.started_at:
+            raise ValueError("finished_at must not precede started_at")
+        return self
 
 
 class PipelineRunResponse(BaseModel):

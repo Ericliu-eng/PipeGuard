@@ -10,12 +10,31 @@ from pipeguard.schemas import (
     IncidentAnalysisResponse,
     PipelineRunResponse,
     QualityCheckResponse,
+    RunReportRequest,
 )
+from pipeguard.security import require_ingest_key
 from pipeguard.services.incident_analysis import build_incident_analysis
+from pipeguard.services.ingest import record_reported_run
 from pipeguard.services.pipeline import DataScenario, run_demo_pipeline
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 DbSession = Annotated[Session, Depends(get_db)]
+
+
+@router.post(
+    "",
+    response_model=PipelineRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_ingest_key)],
+)
+def report_run(report: RunReportRequest, db: DbSession) -> PipelineRun:
+    """Record a run that an external pipeline already executed.
+
+    The caller sends what only it knows — its own timings, row count and check
+    results. The row-count anomaly is added here, from run history the caller
+    has no way to see.
+    """
+    return record_reported_run(db, report)
 
 
 @router.post("/demo", response_model=PipelineRunResponse, status_code=status.HTTP_201_CREATED)
