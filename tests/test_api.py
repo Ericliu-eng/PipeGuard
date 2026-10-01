@@ -1,4 +1,8 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
+from pipeguard.models import PipelineRun, RunStatus
+from sqlalchemy.orm import Session
 
 
 def test_demo_pipeline_success_and_run_detail(client: TestClient) -> None:
@@ -119,3 +123,19 @@ def test_get_analysis_for_unknown_run_returns_404(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Run not found"}
+
+
+def test_running_run_cannot_be_analyzed(client: TestClient, db: Session) -> None:
+    run = PipelineRun(
+        pipeline_name="still_running_pipeline",
+        started_at=datetime.now(UTC),
+        status=RunStatus.running,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    response = client.post(f"/runs/{run.id}/analyze")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Run is still in progress"}
