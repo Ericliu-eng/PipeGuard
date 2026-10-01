@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeguard.database import get_db
-from pipeguard.models import IncidentAnalysis, PipelineRun, QualityCheck
+from pipeguard.models import IncidentAnalysis, PipelineRun, QualityCheck, RunStatus
 from pipeguard.schemas import (
     IncidentAnalysisResponse,
     PipelineRunResponse,
@@ -119,6 +119,12 @@ def analyze_run(run_id: int, db: DbSession, response: Response) -> IncidentAnaly
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Run not found",
+        )
+
+    if run.status == RunStatus.running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run is still in progress",
         )
 
     existing = _latest_analysis(db, run_id)
