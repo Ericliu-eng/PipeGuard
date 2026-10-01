@@ -69,13 +69,17 @@ def run_demo_pipeline(
         db.commit()
         db.refresh(run)
 
-    _prune_old_runs(db, limit=get_settings().run_retention_limit)
+    prune_old_runs(db, limit=get_settings().run_retention_limit)
 
     return run
 
 
-def _prune_old_runs(db: Session, *, limit: int) -> None:
-    """Keep only the newest ``limit`` runs, deleting older ones.
+def prune_old_runs(db: Session, *, limit: int) -> None:
+    """Keep only the newest ``limit`` runs *per pipeline*, deleting older ones.
+
+    The budget is per pipeline rather than global: with one shared limit, a
+    pipeline that runs often would evict the history of one that runs rarely,
+    and the rare pipeline is the one whose history you still want.
 
     Runs are removed through the ORM rather than a bulk DELETE so the
     ``delete-orphan`` cascade also removes their quality checks and incident
@@ -85,15 +89,25 @@ def _prune_old_runs(db: Session, *, limit: int) -> None:
     if limit <= 0:
         return
 
-    newest = (
-        select(PipelineRun.id)
-        .order_by(PipelineRun.started_at.desc(), PipelineRun.id.desc())
-        .limit(limit)
-        .subquery()
-    )
-    stale_runs = list(
-        db.scalars(select(PipelineRun).where(PipelineRun.id.not_in(select(newest.c.id))))
-    )
+    # One query per pipeline rather than a single windowed one: the number of
+    # distinct pipelines is small, and this reads plainly on both backends.
+    stale_runs: list[PipelineRun] = []
+    for pipeline_name in db.scalars(select(PipelineRun.pipeline_name).distinct()):
+        newest = (
+            select(PipelineRun.id)
+            .where(PipelineRun.pipeline_name == pipeline_name)
+            .order_by(PipelineRun.started_at.desc(), PipelineRun.id.desc())
+            .limit(limit)
+            .subquery()
+        )
+        stale_runs.extend(
+            db.scalars(
+                select(PipelineRun).where(
+                    PipelineRun.pipeline_name == pipeline_name,
+                    PipelineRun.id.not_in(select(newest.c.id)),
+                )
+            )
+        )
 
     if not stale_runs:
         return

@@ -1,0 +1,98 @@
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from pipeguard.config import get_settings
+from pipeguard.models import PipelineRun, QualityCheck, RunStatus
+from pipeguard.schemas import RunReportRequest
+from pipeguard.services.pipeline import prune_old_runs
+from pipeguard.services.quality_checks import check_row_count_anomaly
+
+
+def record_reported_run(db: Session, report: RunReportRequest) -> PipelineRun:
+    """Store a run reported by an external pipeline, with its checks.
+
+    The reporting pipeline sends the checks only it can evaluate, because only
+    it touched the data. This side adds the row-count anomaly, because only it
+    has the run history to compare against. An in-pipeline check is an assertion
+    about one batch; the anomaly check is a statement about a trend, and no
+    single run can make it.
+    """
+    run = PipelineRun(
+        pipeline_name=report.pipeline_name,
+        started_at=report.started_at,
+        finished_at=report.finished_at,
+        status=RunStatus(report.status),
+        rows_processed=report.rows_processed,
+        duration_ms=_duration_ms(report.started_at, report.finished_at),
+        error_type=report.error_type,
+        error_message=report.error_message,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    recorded_at = datetime.now(UTC)
+    checks = [
+        QualityCheck(
+            run_id=run.id,
+            check_name=reported.check_name,
+            metric_value=reported.metric_value,
+            threshold=reported.threshold,
+            status=reported.status,
+            message=reported.message,
+            created_at=recorded_at,
+        )
+        for reported in report.checks
+    ]
+
+    # Only for a run that finished: a failed run reports zero rows because it
+    # stopped, not because the source shrank, and flagging that as an anomaly
+    # would bury the real failure under a second false one.
+    if run.status == RunStatus.success:
+        checks.append(_row_count_anomaly(db, run=run, now=recorded_at))
+
+    if checks:
+        db.add_all(checks)
+        db.commit()
+
+    prune_old_runs(db, limit=get_settings().run_retention_limit)
+    db.refresh(run)
+
+    return run
+
+
+def _row_count_anomaly(db: Session, *, run: PipelineRun, now: datetime) -> QualityCheck:
+    settings = get_settings()
+    historical_counts = list(
+        db.scalars(
+            select(PipelineRun.rows_processed)
+            .where(
+                PipelineRun.pipeline_name == run.pipeline_name,
+                PipelineRun.status == RunStatus.success,
+                PipelineRun.id != run.id,
+            )
+            .order_by(PipelineRun.started_at.desc())
+            .limit(settings.row_count_history_size)
+        )
+    )
+    result = check_row_count_anomaly(
+        run.rows_processed,
+        historical_counts=historical_counts,
+        threshold=settings.row_count_drop_threshold,
+    )
+
+    return QualityCheck(
+        run_id=run.id,
+        check_name=result.check_name,
+        metric_value=result.metric_value,
+        threshold=result.threshold,
+        status=result.status,
+        message=result.message,
+        created_at=now,
+    )
+
+
+def _duration_ms(started_at: datetime, finished_at: datetime) -> int:
+    return max(0, round((finished_at - started_at).total_seconds() * 1000))
