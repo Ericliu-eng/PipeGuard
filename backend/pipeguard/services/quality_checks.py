@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from statistics import mean
 from typing import Any
 
-from pipeguard.models import CheckStatus
+from pipeguard.models import CheckStatus, RunQualityStatus
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,18 @@ class QualityCheckResult:
     threshold: float
     status: CheckStatus
     message: str
+
+
+def summarize_check_statuses(statuses: Iterable[CheckStatus | str]) -> RunQualityStatus:
+    """Collapse individual check outcomes into one run-level quality status."""
+    normalized = {CheckStatus(status) for status in statuses}
+    if not normalized:
+        return RunQualityStatus.not_evaluated
+    if CheckStatus.failed in normalized:
+        return RunQualityStatus.failed
+    if CheckStatus.warning in normalized:
+        return RunQualityStatus.warning
+    return RunQualityStatus.passed
 
 
 def check_null_rate(

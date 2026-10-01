@@ -7,6 +7,7 @@ def test_demo_pipeline_success_and_run_detail(client: TestClient) -> None:
     assert created.status_code == 201
     payload = created.json()
     assert payload["status"] == "SUCCESS"
+    assert payload["quality_status"] == "WARN"
     assert payload["rows_processed"] == 3
     assert payload["error_message"] is None
 
@@ -31,6 +32,7 @@ def test_demo_pipeline_failure_is_persisted(client: TestClient) -> None:
     assert created.status_code == 201
     payload = created.json()
     assert payload["status"] == "FAILED"
+    assert payload["quality_status"] == "NOT_EVALUATED"
     assert payload["rows_processed"] == 0
     assert payload["error_type"] == "RuntimeError"
     assert "timeout" in payload["error_message"].lower()
@@ -53,6 +55,7 @@ def test_quality_failure_persists_four_failed_checks(client: TestClient) -> None
 
     assert created.status_code == 201
     assert created.json()["status"] == "SUCCESS"
+    assert created.json()["quality_status"] == "FAIL"
     checks = client.get(f"/runs/{created.json()['id']}/checks").json()
     assert len(checks) == 4
     assert {check["status"] for check in checks} == {"FAIL"}

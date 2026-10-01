@@ -30,6 +30,7 @@ Individual developers and small data teams often run ingestion jobs without dedi
 ```mermaid
 flowchart LR
     D["Streamlit Dashboard"] -->|"HTTPS"| A["FastAPI API"]
+    E["External Pipelines"] -->|"Run reports + API key"| A
     A --> P["Demo Pipeline Runner"]
     P --> Q["Quality Checks"]
     Q --> A
@@ -84,6 +85,12 @@ check results — and the row-count anomaly is computed here instead, from run h
 reporter has no way to see. An in-pipeline check asserts something about one batch; a
 trend needs someone who remembers the previous ones.
 
+Each report carries an `external_run_id`. Retrying the same pipeline/run ID returns the
+stored run with `200` instead of creating a duplicate; the first report returns `201`.
+Execution state and data quality are deliberately separate: `status` says whether the
+pipeline ran, while `quality_status` summarizes its checks as `PASS`, `WARN`, `FAIL`, or
+`NOT_EVALUATED`.
+
 It requires `INGEST_API_KEY` in an `X-API-Key` header. With no key configured the
 endpoint answers `503` rather than accepting writes: it stores rows on behalf of a caller,
 so an unset secret has to fail closed.
@@ -91,6 +98,7 @@ so an unset secret has to fail closed.
 ```json
 {
   "pipeline_name": "market_data_lakehouse_pipeline",
+  "external_run_id": "market-data-2026-09-28T12:00:00Z",
   "status": "SUCCESS",
   "started_at": "2026-09-28T12:00:00Z",
   "finished_at": "2026-09-28T12:00:04Z",
@@ -131,6 +139,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/runs/demo?simulate_failure
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+alembic upgrade head
 uvicorn pipeguard.main:app --app-dir backend --reload
 ```
 
@@ -157,7 +166,9 @@ docker compose up --build
 - API: `http://127.0.0.1:8000`
 - Dashboard: `http://127.0.0.1:8501`
 
-The Docker Compose setup uses a named volume for local SQLite persistence. Production
+The Docker Compose setup applies Alembic migrations before starting the API and uses a
+named volume for local SQLite persistence. Values in `.env`, including quality thresholds,
+the retention limit and `INGEST_API_KEY`, are passed into the API container. Production
 runs on Render with `DATABASE_URL` pointing at a Neon PostgreSQL instance. Any
 `postgresql://` URL is normalized to the psycopg3 driver at startup, so the value
 can be pasted from the provider unedited.
@@ -217,15 +228,29 @@ Dockerfile.dashboard     Dashboard image definition
 docker-compose.yml       Local multi-container setup
 ```
 
+## Database migrations
+
+Schema changes are managed by Alembic:
+
+```powershell
+alembic upgrade head
+```
+
+The initial migration can adopt databases created by earlier PipeGuard releases, then
+applies the quality-status and external-run-ID changes. Application startup no longer
+executes DDL against whichever database happens to be configured.
+
 ## Limitations and future work
 
-- The bundled pipeline generates synthetic rows rather than reading a real source. It exists to
-  exercise the monitoring path deterministically, so each scenario reproduces exactly; accepting
-  runs reported by a real pipeline is the next step.
+- The bundled pipeline generates synthetic rows for deterministic demonstrations. Real pipelines
+  integrate through `POST /runs`; a packaged client SDK and orchestrator-specific integrations are
+  future work.
 - Incident analysis uses deterministic rules, not a live LLM call.
-- The demo supports one sample pipeline; multi-pipeline registration is future work.
-- Authentication, rate limiting, schema-drift detection, and automated remediation are not yet
-  included. `/health` can report a failure now, but nothing watches it and raises an alert — which
+- Reports may use multiple pipeline names, but pipeline registration and per-pipeline policies are
+  future work.
+- The ingest endpoint uses one shared API key; user accounts, rate limiting, schema-drift detection,
+  and automated remediation are not yet included. `/health` can report a failure now, but nothing
+  watches it and raises an alert — which
   is how an earlier outage went unnoticed for two months.
 - Planned improvements include OpenAI-powered analysis, Slack/email alerts, configurable thresholds in the UI, and Prometheus/Grafana metrics.
 

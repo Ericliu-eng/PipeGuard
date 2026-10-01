@@ -5,16 +5,17 @@ observability infrastructure. Failures, stale data, unexpected row counts, and r
 duplicate rates may remain unnoticed until a downstream user reports them. Raw logs then make
 root-cause investigation slow and inconsistent.
 
-PipeGuard provides a small, locally reproducible monitoring layer for one demonstration pipeline.
-The MVP records each run, evaluates four configurable data-quality rules, and presents the result
-through an API and dashboard. Failed runs can later be summarized into structured troubleshooting
-guidance by an LLM, with a deterministic fallback when no model is available.
+PipeGuard provides a small, locally reproducible monitoring layer with a deterministic demonstration
+pipeline and an authenticated endpoint for runs reported by external pipelines. The MVP records each
+run, separates execution state from data-quality state, evaluates configurable quality rules, and
+presents the result through an API and dashboard. Failed runs are summarized into deterministic,
+structured troubleshooting guidance.
 
 ## MVP boundaries
 
 Included:
 
-- One demonstration pipeline
+- One demonstration pipeline and authenticated external run reporting
 - Run history and failure details
 - Null, duplicate, freshness, and row-count checks
 - Dashboard for current state and history
@@ -23,8 +24,7 @@ Included:
 Not included:
 
 - Authentication or multi-user permissions
-- Multiple pipeline registration
+- Pipeline registration and per-pipeline policy management
 - Automated remediation
 - Complex anomaly-detection models
 - Slack or email alerting
-

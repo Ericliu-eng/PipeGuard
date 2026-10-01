@@ -27,14 +27,17 @@ DbSession = Annotated[Session, Depends(get_db)]
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_ingest_key)],
 )
-def report_run(report: RunReportRequest, db: DbSession) -> PipelineRun:
+def report_run(report: RunReportRequest, db: DbSession, response: Response) -> PipelineRun:
     """Record a run that an external pipeline already executed.
 
     The caller sends what only it knows — its own timings, row count and check
     results. The row-count anomaly is added here, from run history the caller
     has no way to see.
     """
-    return record_reported_run(db, report)
+    run, created = record_reported_run(db, report)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return run
 
 
 @router.post("/demo", response_model=PipelineRunResponse, status_code=status.HTTP_201_CREATED)
@@ -70,6 +73,7 @@ def get_run_checks(run_id: int, db: DbSession) -> list[QualityCheck]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     statement = select(QualityCheck).where(QualityCheck.run_id == run_id).order_by(QualityCheck.id)
     return list(db.scalars(statement))
+
 
 def _latest_analysis(db: Session, run_id: int) -> IncidentAnalysis | None:
     statement = (
@@ -122,11 +126,7 @@ def analyze_run(run_id: int, db: DbSession, response: Response) -> IncidentAnaly
         response.status_code = status.HTTP_200_OK
         return existing
 
-    statement = (
-        select(QualityCheck)
-        .where(QualityCheck.run_id == run_id)
-        .order_by(QualityCheck.id)
-    )
+    statement = select(QualityCheck).where(QualityCheck.run_id == run_id).order_by(QualityCheck.id)
     checks = list(db.scalars(statement))
 
     analysis = build_incident_analysis(run, checks)

@@ -54,16 +54,13 @@ def test_health_reports_degraded_when_the_database_is_unreachable(
     assert payload["database"] == "unavailable"
 
 
-def test_startup_survives_an_unreachable_database(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def unreachable_create_all(**kwargs: Any) -> None:
-        raise OperationalError("CREATE TABLE", {}, Exception("connection refused"))
+def test_startup_does_not_mutate_the_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_create_all(**kwargs: Any) -> None:
+        raise AssertionError("schema changes belong to Alembic, not application startup")
 
-    monkeypatch.setattr(Base.metadata, "create_all", unreachable_create_all)
+    monkeypatch.setattr(Base.metadata, "create_all", unexpected_create_all)
 
-    # Entering the context runs the lifespan. It must complete rather than raise
-    # or block, otherwise no route is served at all and the outage looks like
-    # requests that never return.
+    # TestClient used to run create_all against the globally configured database,
+    # even though request sessions were correctly overridden to use the test DB.
     with TestClient(app) as test_client:
         assert test_client.get("/health").status_code in (200, 503)

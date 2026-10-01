@@ -1,6 +1,7 @@
 import json
-from typing import Any
 import os
+from typing import Any
+
 import pandas as pd
 import requests
 import streamlit as st
@@ -33,6 +34,7 @@ def analyze_run(run_id: int) -> dict[str, Any] | None:
     except requests.exceptions.RequestException as exc:
         st.error(f"Failed to analyze pipeline run: {exc}")
         return None
+
 
 # Streamlit reruns this whole script on every interaction, so the read endpoints are
 # cached briefly to avoid refetching unchanged history. Triggering a run clears the
@@ -126,15 +128,12 @@ def get_run_checks(run_id: int) -> list[dict[str, Any]]:
         st.error(f"Failed to load quality checks: {exc}")
         return []
 
+
 def trigger_demo_run(scenario: str) -> dict[str, Any] | None:
     try:
         params = {
             "simulate_failure": scenario == "pipeline_failure",
-            "data_scenario": (
-                "quality_failure"
-                if scenario == "quality_issue"
-                else "normal"
-            ),
+            "data_scenario": ("quality_failure" if scenario == "quality_issue" else "normal"),
         }
         response = requests.post(
             f"{API_BASE_URL}/runs/demo",
@@ -148,6 +147,7 @@ def trigger_demo_run(scenario: str) -> dict[str, Any] | None:
         st.error(f"Failed to trigger demo pipeline: {exc}")
         return None
 
+
 st.subheader("Run Demo Pipeline")
 
 scenario = st.selectbox(
@@ -159,7 +159,12 @@ if st.button("Run Pipeline"):
     result = trigger_demo_run(scenario)
 
     if result is not None:
-        st.success("Demo pipeline completed.")
+        if result["status"] == "FAILED":
+            st.error("Demo pipeline failed. Select the run below to inspect it.")
+        elif result["quality_status"] == "FAIL":
+            st.warning("Demo pipeline completed with data-quality failures.")
+        else:
+            st.success("Demo pipeline completed successfully.")
         clear_run_caches()
         st.rerun()
 
@@ -177,18 +182,18 @@ else:
 
     successful_runs = (status_series == "SUCCESS").sum()
     failed_runs = (status_series == "FAILED").sum()
-    success_rate = (
-        successful_runs / total_runs * 100
-        if total_runs > 0
-        else 0
-    )
+    success_rate = successful_runs / total_runs * 100 if total_runs > 0 else 0
 
-    col1, col2, col3, col4 = st.columns(4)
+    quality_series = runs_df["quality_status"].astype(str).str.upper()
+    quality_incidents = (quality_series == "FAIL").sum()
+
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     col1.metric("Total Runs", total_runs)
     col2.metric("Success Rate", f"{success_rate:.1f}%")
     col3.metric("Successful Runs", successful_runs)
     col4.metric("Failed Runs", failed_runs)
+    col5.metric("Quality Incidents", quality_incidents)
 
     st.subheader("Recent Pipeline Runs")
     st.dataframe(
@@ -229,35 +234,34 @@ else:
             use_container_width=True,
             hide_index=True,
         )
-        st.subheader("Incident Analysis")
 
-        # Read the stored analysis on every rerun so it stays visible after the
-        # script reruns, rather than only right after the button is clicked.
-        analysis = get_stored_analysis(selected_run_id)
+    # Execution failures do not have quality checks, but they are the runs that
+    # most need incident analysis. Keep this section independent of check data.
+    st.subheader("Incident Analysis")
 
-        if st.button("Analyze Selected Run"):
-            created = analyze_run(selected_run_id)
+    analysis = get_stored_analysis(selected_run_id)
 
-            if created is not None:
-                analysis = created
-                fetch_run_analysis.clear()
-                st.success("Incident analysis completed.")
+    if st.button("Analyze Selected Run"):
+        created = analyze_run(selected_run_id)
 
-        if analysis is None:
-            st.info("This run has not been analyzed yet.")
-        else:
-            st.write("**Severity:**", analysis["severity"])
-            st.write("**Summary:**", analysis["summary"])
-            likely_causes = json.loads(analysis["likely_causes"])
-            recommended_steps = json.loads(analysis["recommended_steps"])
+        if created is not None:
+            analysis = created
+            fetch_run_analysis.clear()
+            st.success("Incident analysis completed.")
 
-            st.write("**Likely Causes:**")
-            for cause in likely_causes:
-                st.write(f"- {cause}")
+    if analysis is None:
+        st.info("This run has not been analyzed yet.")
+    else:
+        st.write("**Severity:**", analysis["severity"])
+        st.write("**Summary:**", analysis["summary"])
+        likely_causes = json.loads(analysis["likely_causes"])
+        recommended_steps = json.loads(analysis["recommended_steps"])
 
-            st.write("**Recommended Steps:**")
-            for step in recommended_steps:
-                st.write(f"- {step}")
-            st.write("**Analysis Model:**", analysis["model_name"])
+        st.write("**Likely Causes:**")
+        for cause in likely_causes:
+            st.write(f"- {cause}")
 
-
+        st.write("**Recommended Steps:**")
+        for step in recommended_steps:
+            st.write(f"- {step}")
+        st.write("**Analysis Model:**", analysis["model_name"])

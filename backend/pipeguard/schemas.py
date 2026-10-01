@@ -30,6 +30,7 @@ class RunReportRequest(BaseModel):
     """
 
     pipeline_name: str = Field(min_length=1, max_length=120)
+    external_run_id: str = Field(min_length=1, max_length=200)
     status: Literal["SUCCESS", "FAILED"]
     started_at: datetime
     finished_at: datetime
@@ -50,9 +51,11 @@ class PipelineRunResponse(BaseModel):
 
     id: int
     pipeline_name: str
+    external_run_id: str | None
     started_at: datetime
     finished_at: datetime | None
-    status: str
+    status: Literal["RUNNING", "SUCCESS", "FAILED"]
+    quality_status: Literal["NOT_EVALUATED", "PASS", "WARN", "FAIL"]
     rows_processed: int
     duration_ms: int | None
     error_type: str | None
@@ -70,6 +73,7 @@ class QualityCheckResponse(BaseModel):
     status: str
     message: str
     created_at: datetime
+
 
 class IncidentAnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

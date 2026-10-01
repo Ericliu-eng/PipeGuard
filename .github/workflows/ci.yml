@@ -45,10 +45,15 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run Ruff
-        run: ruff check backend tests
+        run: ruff check backend dashboard migrations tests
 
       - name: Run tests against SQLite
         run: pytest
+
+      - name: Run migrations against PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pipeguard_test
+        run: alembic upgrade head
 
       - name: Run tests against PostgreSQL
         env:

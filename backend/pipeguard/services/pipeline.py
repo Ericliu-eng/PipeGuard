@@ -6,13 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeguard.config import get_settings
-from pipeguard.models import PipelineRun, QualityCheck, RunStatus
+from pipeguard.models import PipelineRun, QualityCheck, RunQualityStatus, RunStatus
 from pipeguard.services.quality_checks import (
     QualityCheckResult,
     check_duplicate_rate,
     check_freshness,
     check_null_rate,
     check_row_count_anomaly,
+    summarize_check_statuses,
 )
 
 DataScenario = Literal["normal", "quality_failure"]
@@ -56,10 +57,12 @@ def run_demo_pipeline(
 
         rows = demo_rows(data_scenario, now=started_at)
         run.rows_processed = len(rows)
-        _persist_quality_checks(db, run=run, rows=rows, now=started_at)
+        results = _persist_quality_checks(db, run=run, rows=rows, now=started_at)
         run.status = RunStatus.success
+        run.quality_status = summarize_check_statuses(result.status for result in results)
     except Exception as exc:
         run.status = RunStatus.failed
+        run.quality_status = RunQualityStatus.not_evaluated
         run.error_type = type(exc).__name__
         run.error_message = str(exc)
     finally:
@@ -123,7 +126,7 @@ def _persist_quality_checks(
     run: PipelineRun,
     rows: list[dict[str, object]],
     now: datetime,
-) -> None:
+) -> list[QualityCheckResult]:
     settings = get_settings()
     historical_counts = list(
         db.scalars(
@@ -131,6 +134,7 @@ def _persist_quality_checks(
             .where(
                 PipelineRun.pipeline_name == run.pipeline_name,
                 PipelineRun.status == RunStatus.success,
+                PipelineRun.quality_status.in_([RunQualityStatus.passed, RunQualityStatus.warning]),
             )
             .where(PipelineRun.id != run.id)
             .order_by(PipelineRun.started_at.desc())
@@ -152,11 +156,10 @@ def _persist_quality_checks(
         ),
     ]
     db.add_all([_to_quality_check(run.id, result, now=now) for result in results])
+    return results
 
 
-def _to_quality_check(
-    run_id: int, result: QualityCheckResult, *, now: datetime
-) -> QualityCheck:
+def _to_quality_check(run_id: int, result: QualityCheckResult, *, now: datetime) -> QualityCheck:
     return QualityCheck(
         run_id=run_id,
         check_name=result.check_name,

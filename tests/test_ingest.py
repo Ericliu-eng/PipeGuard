@@ -14,6 +14,7 @@ def report() -> dict[str, Any]:
     started_at = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
     return {
         "pipeline_name": "market_data_lakehouse_pipeline",
+        "external_run_id": "market-data-2026-09-28T12:00:00Z",
         "status": "SUCCESS",
         "started_at": started_at.isoformat(),
         "finished_at": (started_at + timedelta(seconds=4)).isoformat(),
@@ -48,7 +49,9 @@ def test_reporting_a_run_stores_it_with_its_checks(
     assert response.status_code == 201
     run = response.json()
     assert run["pipeline_name"] == "market_data_lakehouse_pipeline"
+    assert run["external_run_id"] == report["external_run_id"]
     assert run["status"] == "SUCCESS"
+    assert run["quality_status"] == "WARN"
     assert run["rows_processed"] == 500
     assert run["duration_ms"] == 4000
 
@@ -65,15 +68,31 @@ def test_row_count_anomaly_compares_against_previous_reported_runs(
     with_api_key()
     headers = {"X-API-Key": API_KEY}
 
-    for _ in range(3):
-        client.post("/runs", json=report, headers=headers)
+    for index in range(3):
+        client.post(
+            "/runs",
+            json={**report, "external_run_id": f"healthy-{index}"},
+            headers=headers,
+        )
 
-    collapsed = {**report, "rows_processed": 10}
+    collapsed = {**report, "external_run_id": "collapsed-1", "rows_processed": 10}
     response = client.post("/runs", json=collapsed, headers=headers)
 
     checks = client.get(f"/runs/{response.json()['id']}/checks").json()
     anomaly = next(c for c in checks if c["check_name"] == "row_count_anomaly")
     assert anomaly["status"] == "FAIL"
+    assert response.json()["quality_status"] == "FAIL"
+
+    # A failed batch must not lower the baseline and make the next identical
+    # failure appear healthy.
+    repeated = client.post(
+        "/runs",
+        json={**collapsed, "external_run_id": "collapsed-2"},
+        headers=headers,
+    )
+    repeated_checks = client.get(f"/runs/{repeated.json()['id']}/checks").json()
+    repeated_anomaly = next(c for c in repeated_checks if c["check_name"] == "row_count_anomaly")
+    assert repeated_anomaly["status"] == "FAIL"
 
 
 def test_a_failed_run_is_not_also_flagged_as_an_anomaly(
@@ -85,6 +104,7 @@ def test_a_failed_run_is_not_also_flagged_as_an_anomaly(
 
     failed = {
         **report,
+        "external_run_id": "failed-run-1",
         "status": "FAILED",
         "rows_processed": 0,
         "error_type": "ConnectionError",
@@ -94,6 +114,7 @@ def test_a_failed_run_is_not_also_flagged_as_an_anomaly(
     response = client.post("/runs", json=failed, headers=headers)
 
     assert response.status_code == 201
+    assert response.json()["quality_status"] == "NOT_EVALUATED"
     # Zero rows here means the run stopped, not that the source shrank. Flagging
     # it would bury the real failure under a second, invented one.
     checks = client.get(f"/runs/{response.json()['id']}/checks").json()
@@ -131,3 +152,19 @@ def test_a_report_that_finishes_before_it_starts_is_rejected(
     response = client.post("/runs", json=backwards, headers={"X-API-Key": API_KEY})
 
     assert response.status_code == 422
+
+
+def test_reporting_the_same_external_run_is_idempotent(
+    client: TestClient, report: dict[str, Any], with_api_key: Callable[[], None]
+) -> None:
+    with_api_key()
+    headers = {"X-API-Key": API_KEY}
+
+    created = client.post("/runs", json=report, headers=headers)
+    repeated = client.post("/runs", json=report, headers=headers)
+
+    assert created.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == created.json()["id"]
+    runs = client.get("/runs").json()
+    assert len(runs) == 1

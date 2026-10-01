@@ -2,8 +2,9 @@
 
 ## `pipeline_runs`
 
-One record per pipeline execution. Stores timing, status, processed row count, and normalized error
-details.
+One record per pipeline execution. Stores timing, execution status, aggregate quality status,
+processed row count, and normalized error details. Externally reported runs also carry an
+`external_run_id`; `(pipeline_name, external_run_id)` is unique so reporter retries are idempotent.
 
 ## `quality_checks`
 

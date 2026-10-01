@@ -1,16 +1,17 @@
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from pipeguard.config import get_settings
-from pipeguard.models import PipelineRun, QualityCheck, RunStatus
+from pipeguard.models import PipelineRun, QualityCheck, RunQualityStatus, RunStatus
 from pipeguard.schemas import RunReportRequest
 from pipeguard.services.pipeline import prune_old_runs
-from pipeguard.services.quality_checks import check_row_count_anomaly
+from pipeguard.services.quality_checks import check_row_count_anomaly, summarize_check_statuses
 
 
-def record_reported_run(db: Session, report: RunReportRequest) -> PipelineRun:
+def record_reported_run(db: Session, report: RunReportRequest) -> tuple[PipelineRun, bool]:
     """Store a run reported by an external pipeline, with its checks.
 
     The reporting pipeline sends the checks only it can evaluate, because only
@@ -19,8 +20,13 @@ def record_reported_run(db: Session, report: RunReportRequest) -> PipelineRun:
     about one batch; the anomaly check is a statement about a trend, and no
     single run can make it.
     """
+    existing = _find_reported_run(db, report.pipeline_name, report.external_run_id)
+    if existing is not None:
+        return existing, False
+
     run = PipelineRun(
         pipeline_name=report.pipeline_name,
+        external_run_id=report.external_run_id,
         started_at=report.started_at,
         finished_at=report.finished_at,
         status=RunStatus(report.status),
@@ -30,8 +36,16 @@ def record_reported_run(db: Session, report: RunReportRequest) -> PipelineRun:
         error_message=report.error_message,
     )
     db.add(run)
-    db.commit()
-    db.refresh(run)
+    try:
+        db.flush()
+    except IntegrityError:
+        # A concurrent retry may have inserted the same external run after the
+        # lookup above. The database constraint is the final arbiter.
+        db.rollback()
+        existing = _find_reported_run(db, report.pipeline_name, report.external_run_id)
+        if existing is None:
+            raise
+        return existing, False
 
     recorded_at = datetime.now(UTC)
     checks = [
@@ -52,15 +66,28 @@ def record_reported_run(db: Session, report: RunReportRequest) -> PipelineRun:
     # would bury the real failure under a second false one.
     if run.status == RunStatus.success:
         checks.append(_row_count_anomaly(db, run=run, now=recorded_at))
+        run.quality_status = summarize_check_statuses(check.status for check in checks)
+    else:
+        run.quality_status = RunQualityStatus.not_evaluated
 
     if checks:
         db.add_all(checks)
-        db.commit()
+
+    db.commit()
 
     prune_old_runs(db, limit=get_settings().run_retention_limit)
     db.refresh(run)
 
-    return run
+    return run, True
+
+
+def _find_reported_run(db: Session, pipeline_name: str, external_run_id: str) -> PipelineRun | None:
+    return db.scalar(
+        select(PipelineRun).where(
+            PipelineRun.pipeline_name == pipeline_name,
+            PipelineRun.external_run_id == external_run_id,
+        )
+    )
 
 
 def _row_count_anomaly(db: Session, *, run: PipelineRun, now: datetime) -> QualityCheck:
@@ -71,6 +98,7 @@ def _row_count_anomaly(db: Session, *, run: PipelineRun, now: datetime) -> Quali
             .where(
                 PipelineRun.pipeline_name == run.pipeline_name,
                 PipelineRun.status == RunStatus.success,
+                PipelineRun.quality_status.in_([RunQualityStatus.passed, RunQualityStatus.warning]),
                 PipelineRun.id != run.id,
             )
             .order_by(PipelineRun.started_at.desc())
