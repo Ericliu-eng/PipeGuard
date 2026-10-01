@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -11,6 +13,10 @@ from pipeguard.services.pipeline import prune_old_runs
 from pipeguard.services.quality_checks import check_row_count_anomaly, summarize_check_statuses
 
 
+class RunReportConflictError(ValueError):
+    """Raised when an idempotency key is reused for different run data."""
+
+
 def record_reported_run(db: Session, report: RunReportRequest) -> tuple[PipelineRun, bool]:
     """Store a run reported by an external pipeline, with its checks.
 
@@ -20,13 +26,16 @@ def record_reported_run(db: Session, report: RunReportRequest) -> tuple[Pipeline
     about one batch; the anomaly check is a statement about a trend, and no
     single run can make it.
     """
+    fingerprint = _report_fingerprint(report)
     existing = _find_reported_run(db, report.pipeline_name, report.external_run_id)
     if existing is not None:
+        _ensure_matching_report(existing, fingerprint)
         return existing, False
 
     run = PipelineRun(
         pipeline_name=report.pipeline_name,
         external_run_id=report.external_run_id,
+        report_fingerprint=fingerprint,
         started_at=report.started_at,
         finished_at=report.finished_at,
         status=RunStatus(report.status),
@@ -45,6 +54,7 @@ def record_reported_run(db: Session, report: RunReportRequest) -> tuple[Pipeline
         existing = _find_reported_run(db, report.pipeline_name, report.external_run_id)
         if existing is None:
             raise
+        _ensure_matching_report(existing, fingerprint)
         return existing, False
 
     recorded_at = datetime.now(UTC)
@@ -88,6 +98,25 @@ def _find_reported_run(db: Session, pipeline_name: str, external_run_id: str) ->
             PipelineRun.external_run_id == external_run_id,
         )
     )
+
+
+def _ensure_matching_report(existing: PipelineRun, fingerprint: str) -> None:
+    if existing.report_fingerprint != fingerprint:
+        raise RunReportConflictError(
+            "external_run_id is already associated with different run data"
+        )
+
+
+def _report_fingerprint(report: RunReportRequest) -> str:
+    payload = report.model_dump(mode="json")
+    payload["started_at"] = report.started_at.astimezone(UTC).isoformat()
+    payload["finished_at"] = report.finished_at.astimezone(UTC).isoformat()
+    payload["checks"] = sorted(
+        payload["checks"],
+        key=lambda check: json.dumps(check, sort_keys=True, separators=(",", ":")),
+    )
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _row_count_anomaly(db: Session, *, run: PipelineRun, now: datetime) -> QualityCheck:

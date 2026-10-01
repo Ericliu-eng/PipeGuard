@@ -5,6 +5,7 @@
 One record per pipeline execution. Stores timing, execution status, aggregate quality status,
 processed row count, and normalized error details. Externally reported runs also carry an
 `external_run_id`; `(pipeline_name, external_run_id)` is unique so reporter retries are idempotent.
+An internal request fingerprint rejects reuse of that identifier with different report data.
 
 ## `quality_checks`
 

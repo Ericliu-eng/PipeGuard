@@ -168,3 +168,35 @@ def test_reporting_the_same_external_run_is_idempotent(
     assert repeated.json()["id"] == created.json()["id"]
     runs = client.get("/runs").json()
     assert len(runs) == 1
+
+
+def test_reusing_an_external_run_id_for_different_data_is_rejected(
+    client: TestClient, report: dict[str, Any], with_api_key: Callable[[], None]
+) -> None:
+    with_api_key()
+    headers = {"X-API-Key": API_KEY}
+    client.post("/runs", json=report, headers=headers)
+
+    conflict = client.post(
+        "/runs",
+        json={**report, "rows_processed": report["rows_processed"] + 1},
+        headers=headers,
+    )
+
+    assert conflict.status_code == 409
+    assert "different run data" in conflict.json()["detail"]
+
+
+def test_report_timestamps_must_include_a_timezone(
+    client: TestClient, report: dict[str, Any], with_api_key: Callable[[], None]
+) -> None:
+    with_api_key()
+    without_timezone = {**report, "started_at": "2026-09-28T12:00:00"}
+
+    response = client.post(
+        "/runs",
+        json=without_timezone,
+        headers={"X-API-Key": API_KEY},
+    )
+
+    assert response.status_code == 422

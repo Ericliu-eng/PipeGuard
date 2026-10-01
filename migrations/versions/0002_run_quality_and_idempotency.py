@@ -25,6 +25,11 @@ def upgrade() -> None:
             "pipeline_runs",
             sa.Column("external_run_id", sa.String(length=200), nullable=True),
         )
+    if "report_fingerprint" not in columns:
+        op.add_column(
+            "pipeline_runs",
+            sa.Column("report_fingerprint", sa.String(length=64), nullable=True),
+        )
     if "quality_status" not in columns:
         op.add_column(
             "pipeline_runs",
@@ -83,4 +88,5 @@ def downgrade() -> None:
     op.drop_index("uq_pipeline_runs_pipeline_external_run_id", table_name="pipeline_runs")
     with op.batch_alter_table("pipeline_runs") as batch_op:
         batch_op.drop_column("quality_status")
+        batch_op.drop_column("report_fingerprint")
         batch_op.drop_column("external_run_id")

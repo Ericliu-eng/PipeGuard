@@ -87,6 +87,8 @@ trend needs someone who remembers the previous ones.
 
 Each report carries an `external_run_id`. Retrying the same pipeline/run ID returns the
 stored run with `200` instead of creating a duplicate; the first report returns `201`.
+Reusing that ID with different run data returns `409`, preventing a retry key from
+silently overwriting or masking a different execution.
 Execution state and data quality are deliberately separate: `status` says whether the
 pipeline ran, while `quality_status` summarizes its checks as `PASS`, `WARN`, `FAIL`, or
 `NOT_EVALUATED`.

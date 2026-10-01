@@ -41,6 +41,8 @@ class RunReportRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_ordering(self) -> Self:
+        if self.started_at.tzinfo is None or self.finished_at.tzinfo is None:
+            raise ValueError("started_at and finished_at must include a timezone")
         if self.finished_at < self.started_at:
             raise ValueError("finished_at must not precede started_at")
         return self

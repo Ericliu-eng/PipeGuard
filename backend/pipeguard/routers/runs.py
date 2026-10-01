@@ -14,7 +14,7 @@ from pipeguard.schemas import (
 )
 from pipeguard.security import require_ingest_key
 from pipeguard.services.incident_analysis import build_incident_analysis
-from pipeguard.services.ingest import record_reported_run
+from pipeguard.services.ingest import RunReportConflictError, record_reported_run
 from pipeguard.services.pipeline import DataScenario, run_demo_pipeline
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -34,7 +34,10 @@ def report_run(report: RunReportRequest, db: DbSession, response: Response) -> P
     results. The row-count anomaly is added here, from run history the caller
     has no way to see.
     """
-    run, created = record_reported_run(db, report)
+    try:
+        run, created = record_reported_run(db, report)
+    except RunReportConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not created:
         response.status_code = status.HTTP_200_OK
     return run

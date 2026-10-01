@@ -17,7 +17,7 @@ def test_migrations_build_the_current_schema(tmp_path: Path) -> None:
     columns = {column["name"] for column in inspector.get_columns("pipeline_runs")}
     indexes = {index["name"] for index in inspector.get_indexes("pipeline_runs")}
 
-    assert {"external_run_id", "quality_status"} <= columns
+    assert {"external_run_id", "report_fingerprint", "quality_status"} <= columns
     assert "uq_pipeline_runs_pipeline_external_run_id" in indexes
     assert "ix_pipeline_runs_baseline_lookup" in indexes
     engine.dispose()

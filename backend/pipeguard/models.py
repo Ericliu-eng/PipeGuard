@@ -47,6 +47,7 @@ class PipelineRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     pipeline_name: Mapped[str] = mapped_column(String(120), index=True)
     external_run_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    report_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), index=True)
