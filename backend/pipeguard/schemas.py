@@ -100,7 +100,7 @@ class IncidentAnalysisResponse(BaseModel):
     run_id: int
     summary: str
     severity: str
-    likely_causes: str
-    recommended_steps: str
+    likely_causes: list[str]
+    recommended_steps: list[str]
     model_name: str
     created_at: datetime

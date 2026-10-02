@@ -3,7 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from pipeguard import models  # noqa: F401
 from pipeguard.config import get_settings
-from pipeguard.database import Base, normalize_database_url
+from pipeguard.database import Base, connect_args_for, normalize_database_url
 from sqlalchemy import engine_from_config, pool
 
 config = context.config
@@ -33,12 +33,17 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    url = database_url()
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = database_url()
+    configuration["sqlalchemy.url"] = url
+    # Migrations run before the server starts, so a connection that never gives
+    # up here means a server that never starts. Bound it like every other engine:
+    # an unreachable database should fail the boot with an error, not hang it.
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args_for(url),
     )
 
     with connectable.connect() as connection:
