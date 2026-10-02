@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     app_name: str = "PipeGuard API"
     app_env: str = "development"
     database_url: str = "sqlite:///./pipeguard.db"
+    # Seconds to wait for a PostgreSQL connection before giving up. libpq's own
+    # default is to wait forever, which turns an unreachable database into a
+    # process that never starts and never says why.
+    database_connect_timeout: int = 10
     null_rate_threshold: float = 0.05
     duplicate_rate_threshold: float = 0.01
     freshness_hours_threshold: float = 24.0

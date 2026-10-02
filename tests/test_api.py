@@ -79,10 +79,12 @@ def test_analyze_failed_run_returns_rule_based_analysis(client: TestClient) -> N
 
     assert payload["run_id"] == run_id
     assert payload["severity"] == "high"
-    assert payload["model_name"] == "rule-based-fallback"
+    assert payload["model_name"] == "rule-based"
     assert "timeout" in payload["summary"].lower()
-    assert "RuntimeError" in payload["likely_causes"]
-    assert "upstream service" in payload["recommended_steps"].lower()
+    # Real lists now, not JSON encoded into a string: the old assertions here
+    # were substring checks against that string, which matched any text at all.
+    assert payload["likely_causes"][0] == "RuntimeError"
+    assert any("upstream service" in step.lower() for step in payload["recommended_steps"])
 
 
 def test_analyze_unknown_run_returns_404(client: TestClient) -> None:

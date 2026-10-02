@@ -29,18 +29,32 @@ def normalize_database_url(database_url: str) -> str:
     return database_url
 
 
-def _engine_kwargs(database_url: str) -> dict[str, object]:
+def connect_args_for(database_url: str) -> dict[str, object]:
+    """DBAPI connect arguments shared by every engine this project creates.
+
+    The application engine and the migration engine both go through this, so a
+    connection limit cannot be set on one and forgotten on the other. That is
+    exactly what happened once: the application engine gained a timeout, the
+    migration engine did not, and since migrations run before the server starts,
+    an unreachable database hung startup forever all over again.
+    """
     if database_url.startswith("sqlite"):
-        return {"connect_args": {"check_same_thread": False}}
+        return {"check_same_thread": False}
+    # Bounds how long an unreachable host can stall a connection attempt. libpq
+    # waits forever by default, which reads as "the service never responds"
+    # rather than as an error anyone can act on.
+    return {"connect_timeout": get_settings().database_connect_timeout}
+
+
+def _engine_kwargs(database_url: str) -> dict[str, object]:
+    connect_args = connect_args_for(database_url)
+    if database_url.startswith("sqlite"):
+        return {"connect_args": connect_args}
     # Managed Postgres instances drop idle connections, and a dead connection is
     # only detected when it is used. Validate on checkout and retire old ones so a
     # request after an idle period does not fail with OperationalError.
-    #
-    # connect_timeout bounds how long an unreachable host can stall a connection
-    # attempt. Without it a deleted database made startup hang indefinitely, which
-    # reads as "the service never responds" rather than as an error.
     return {
-        "connect_args": {"connect_timeout": 10},
+        "connect_args": connect_args,
         "pool_pre_ping": True,
         "pool_recycle": 300,
     }

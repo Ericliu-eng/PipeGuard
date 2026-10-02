@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from pipeguard.database import Base
@@ -91,8 +91,8 @@ class IncidentAnalysis(Base):
     run_id: Mapped[int] = mapped_column(ForeignKey("pipeline_runs.id"), index=True)
     summary: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20))
-    likely_causes: Mapped[str] = mapped_column(Text)
-    recommended_steps: Mapped[str] = mapped_column(Text)
+    likely_causes: Mapped[list[str]] = mapped_column(JSON)
+    recommended_steps: Mapped[list[str]] = mapped_column(JSON)
     model_name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

@@ -193,6 +193,12 @@ so an unset secret has to fail closed.
 time, and `200` with the stored analysis on later calls. A finished run and its checks no
 longer change, so repeat calls would otherwise only duplicate rows.
 
+An analysis explains each failed check in terms of what that check measures: a collapsed
+row count points at upstream truncation or throttling, not at nulls and duplicates. Checks
+reported by an external pipeline (`not_null`, `unique`, `range`, `foreign_key`,
+`freshness`) are covered alongside PipeGuard's own; any other name falls back to generic
+advice. `likely_causes` and `recommended_steps` are JSON arrays.
+
 To simulate a quality issue, call:
 
 ```powershell
@@ -253,6 +259,7 @@ Copy `.env.example` to `.env` and adjust values as needed:
 
 ```text
 DATABASE_URL=sqlite:///./pipeguard.db
+DATABASE_CONNECT_TIMEOUT=10
 NULL_RATE_THRESHOLD=0.05
 DUPLICATE_RATE_THRESHOLD=0.01
 FRESHNESS_HOURS_THRESHOLD=24
@@ -313,6 +320,12 @@ alembic upgrade head
 The initial migration can adopt databases created by earlier PipeGuard releases, then
 applies the quality-status and external-run-ID changes. Application startup no longer
 executes DDL against whichever database happens to be configured.
+
+The API container runs migrations before it starts the server. Both the migration engine
+and the application engine give up on an unreachable database after
+`DATABASE_CONNECT_TIMEOUT` seconds (default `10`): libpq would otherwise wait forever, and
+a migration that never finishes is a server that never starts. A failed boot shows up as
+an error in the platform logs instead of as requests that hang.
 
 ## Limitations and future work
 
