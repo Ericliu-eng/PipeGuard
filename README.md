@@ -2,12 +2,9 @@
 
 > A lightweight data-pipeline monitoring platform that detects execution and data-quality incidents, then produces actionable incident guidance.
 
-[Open the live dashboard](https://pipeguard-dashboard-iiub.onrender.com) · [Open the API](https://pipeguard-fn1b.onrender.com) · [API health check](https://pipeguard-fn1b.onrender.com/health) · [Interactive API docs](https://pipeguard-fn1b.onrender.com/docs)
+[Live dashboard](https://pipeguard-dashboard-iiub.onrender.com) · [API documentation](https://pipeguard-fn1b.onrender.com/docs) · [API health](https://pipeguard-fn1b.onrender.com/health)
 
-<!-- A recording of the dashboard belongs here: it loads instantly, while the links
-     above sit behind a free-tier cold start of roughly a minute. Record the three
-     scenarios end to end, save as docs/demo.gif, and reference it with:
-     ![PipeGuard dashboard](docs/demo.gif) -->
+![PipeGuard dashboard showing run history and quality KPIs](docs/assets/pipeguard-dashboard.jpg)
 
 > Free instances sleep when idle, so the first request can take about a minute.
 
@@ -29,14 +26,26 @@ Individual developers and small data teams often run ingestion jobs without dedi
 
 ```mermaid
 flowchart LR
-    D["Streamlit Dashboard"] -->|"HTTPS"| A["FastAPI API"]
-    E["External Pipelines"] -->|"Run reports + API key"| A
-    A --> P["Demo Pipeline Runner"]
-    P --> Q["Quality Checks"]
-    Q --> A
-    A --> DB[("PostgreSQL")]
-    A --> I["Incident Analyzer"]
-    I --> DB
+    U["Operator / Browser"] --> D["Streamlit Dashboard"]
+    E["External Pipelines"] -->|"POST /runs<br/>X-API-Key"| A["FastAPI API"]
+    D -->|"REST / HTTPS"| A
+
+    A --> R["Run Ingestion<br/>validation · idempotency · retention"]
+    A --> P["Synthetic Demo Runner"]
+    A --> H["Run History<br/>filters · pagination · KPI summary"]
+    A --> I["Rule-based Incident Analysis"]
+    R --> Q["Quality Engine<br/>null · duplicate · freshness · row count"]
+    P --> Q
+
+    R --> S["SQLAlchemy ORM"]
+    P --> S
+    Q --> S
+    H --> S
+    I --> S
+    S <--> DB[("PostgreSQL / Neon<br/>production")]
+    S <--> LDB[("SQLite<br/>local development and tests")]
+    M["Alembic Migrations"] --> DB
+    M --> LDB
 ```
 
 ## Live demo
@@ -114,6 +123,46 @@ new runs inserted while browsing can shift later pages.
     "quality_incidents": 0
   }
 }
+```
+
+The server reads the shared secret from `INGEST_API_KEY`. External callers should keep
+their copy in their own secret store; the example below names that caller-side variable
+`PIPEGUARD_API_KEY` so the two responsibilities stay clear.
+
+```powershell
+$env:PIPEGUARD_API_URL = "https://pipeguard-fn1b.onrender.com"
+# Set PIPEGUARD_API_KEY through the pipeline's secret/environment configuration.
+
+if (-not $env:PIPEGUARD_API_KEY) {
+    throw "PIPEGUARD_API_KEY is not set"
+}
+
+$report = @'
+{
+  "pipeline_name": "market_data_lakehouse_pipeline",
+  "external_run_id": "market-data-2026-09-28T12:00:00Z",
+  "status": "SUCCESS",
+  "started_at": "2026-09-28T12:00:00Z",
+  "finished_at": "2026-09-28T12:00:04Z",
+  "rows_processed": 500,
+  "checks": [
+    {
+      "check_name": "not_null_ts",
+      "status": "PASS",
+      "metric_value": 0.0,
+      "threshold": 0.0,
+      "message": "market_bars.ts has no nulls."
+    }
+  ]
+}
+'@
+
+Invoke-RestMethod `
+    -Method Post `
+    -Uri "$env:PIPEGUARD_API_URL/runs" `
+    -Headers @{ "X-API-Key" = $env:PIPEGUARD_API_KEY } `
+    -ContentType "application/json" `
+    -Body $report
 ```
 
 `POST /runs` requires `INGEST_API_KEY` in an `X-API-Key` header. With no key configured the
