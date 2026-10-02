@@ -1,4 +1,3 @@
-import json
 import math
 import os
 from typing import Any
@@ -405,14 +404,11 @@ if runs_page is not None:
         else:
             st.write("**Severity:**", analysis["severity"])
             st.write("**Summary:**", analysis["summary"])
-            likely_causes = json.loads(analysis["likely_causes"])
-            recommended_steps = json.loads(analysis["recommended_steps"])
-
             st.write("**Likely Causes:**")
-            for cause in likely_causes:
+            for cause in analysis["likely_causes"]:
                 st.write(f"- {cause}")
 
             st.write("**Recommended Steps:**")
-            for step in recommended_steps:
+            for step in analysis["recommended_steps"]:
                 st.write(f"- {step}")
             st.write("**Analysis Model:**", analysis["model_name"])
