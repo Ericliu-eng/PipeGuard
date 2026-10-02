@@ -10,13 +10,14 @@ An internal request fingerprint rejects reuse of that identifier with different 
 ## `quality_checks`
 
 One record per check evaluated for a run. Stores the measured value, configured threshold, status,
-and a human-readable message. The MVP writes `null_rate`, `duplicate_rate`, `freshness`, and
-`row_count_anomaly` results for each completed demonstration run.
+and a human-readable message. Demo runs write `null_rate`, `duplicate_rate`, `freshness`, and
+`row_count_anomaly`. Externally reported runs store the checks the pipeline sent, plus a
+`row_count_anomaly` computed here from that pipeline's history.
 
 ## `incident_analyses`
 
-Stores structured incident summaries associated with failed runs, including severity, likely
-causes, recommended steps, and model provenance.
+One analysis per run, with severity, a summary, and model provenance. `likely_causes` and
+`recommended_steps` are JSON arrays, with advice specific to each check that failed.
 
 Relationships:
 
