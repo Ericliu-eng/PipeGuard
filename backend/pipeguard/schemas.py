@@ -64,6 +64,22 @@ class PipelineRunResponse(BaseModel):
     error_message: str | None
 
 
+class PipelineRunSummaryResponse(BaseModel):
+    successful: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    running: int = Field(ge=0)
+    quality_incidents: int = Field(ge=0)
+
+
+class PipelineRunPageResponse(BaseModel):
+    items: list[PipelineRunResponse]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=200)
+    offset: int = Field(ge=0)
+    has_more: bool
+    summary: PipelineRunSummaryResponse
+
+
 class QualityCheckResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

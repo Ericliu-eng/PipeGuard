@@ -68,7 +68,8 @@ flowchart LR
 | `GET` | `/health` | Service health check, including a database probe |
 | `POST` | `/runs` | Report a run executed by an external pipeline |
 | `POST` | `/runs/demo` | Run the demonstration pipeline |
-| `GET` | `/runs` | List pipeline-run history |
+| `GET` | `/runs` | List recent runs (backward-compatible array response) |
+| `GET` | `/runs/page` | Filter and page through pipeline-run history |
 | `GET` | `/runs/{id}` | Get one pipeline run |
 | `GET` | `/runs/{id}/checks` | Get that run's quality-check results |
 | `GET` | `/runs/{id}/analysis` | Get the stored incident analysis |
@@ -93,7 +94,29 @@ Execution state and data quality are deliberately separate: `status` says whethe
 pipeline ran, while `quality_status` summarizes its checks as `PASS`, `WARN`, `FAIL`, or
 `NOT_EVALUATED`.
 
-It requires `INGEST_API_KEY` in an `X-API-Key` header. With no key configured the
+`GET /runs/page` accepts exact `pipeline_name`, `status`, and `quality_status` filters plus
+`limit` (1–200) and `offset`. It returns `items`, an accurate filtered `total`, stable
+pagination metadata, and a filtered `summary` for the dashboard KPIs. Results are ordered
+deterministically by newest start time and then by ID. As with offset pagination generally,
+new runs inserted while browsing can shift later pages.
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "limit": 50,
+  "offset": 0,
+  "has_more": false,
+  "summary": {
+    "successful": 0,
+    "failed": 0,
+    "running": 0,
+    "quality_incidents": 0
+  }
+}
+```
+
+`POST /runs` requires `INGEST_API_KEY` in an `X-API-Key` header. With no key configured the
 endpoint answers `503` rather than accepting writes: it stores rows on behalf of a caller,
 so an unset secret has to fail closed.
 
@@ -202,7 +225,7 @@ endpoint.
 
 ```powershell
 pytest
-ruff check backend tests
+ruff check backend dashboard migrations tests
 ```
 
 The suite runs against in-memory SQLite by default. Point it at a real PostgreSQL

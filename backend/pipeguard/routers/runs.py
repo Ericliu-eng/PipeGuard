@@ -1,14 +1,22 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, select, true
+from sqlalchemy.orm import Session, aliased
 
 from pipeguard.database import get_db
-from pipeguard.models import IncidentAnalysis, PipelineRun, QualityCheck, RunStatus
+from pipeguard.models import (
+    IncidentAnalysis,
+    PipelineRun,
+    QualityCheck,
+    RunQualityStatus,
+    RunStatus,
+)
 from pipeguard.schemas import (
     IncidentAnalysisResponse,
+    PipelineRunPageResponse,
     PipelineRunResponse,
+    PipelineRunSummaryResponse,
     QualityCheckResponse,
     RunReportRequest,
 )
@@ -58,8 +66,98 @@ def create_demo_run(
 
 @router.get("", response_model=list[PipelineRunResponse])
 def list_runs(db: DbSession, limit: int = Query(default=50, ge=1, le=200)) -> list[PipelineRun]:
-    statement = select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(limit)
+    statement = (
+        select(PipelineRun)
+        .order_by(PipelineRun.started_at.desc(), PipelineRun.id.desc())
+        .limit(limit)
+    )
     return list(db.scalars(statement))
+
+
+@router.get("/page", response_model=PipelineRunPageResponse)
+def list_run_page(
+    db: DbSession,
+    pipeline_name: str | None = Query(default=None, min_length=1, max_length=120),
+    run_status: Annotated[RunStatus | None, Query(alias="status")] = None,
+    quality_status: Annotated[RunQualityStatus | None, Query()] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> PipelineRunPageResponse:
+    filters = []
+    if pipeline_name is not None:
+        if not pipeline_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="pipeline_name must not be blank",
+            )
+        filters.append(PipelineRun.pipeline_name == pipeline_name)
+    if run_status is not None:
+        filters.append(PipelineRun.status == run_status)
+    if quality_status is not None:
+        filters.append(PipelineRun.quality_status == quality_status)
+
+    filtered_runs = select(PipelineRun).where(*filters).cte("filtered_runs")
+    aggregates = select(
+        func.count(filtered_runs.c.id).label("total"),
+        func.coalesce(
+            func.sum(case((filtered_runs.c.status == RunStatus.success, 1), else_=0)),
+            0,
+        ).label("successful"),
+        func.coalesce(
+            func.sum(case((filtered_runs.c.status == RunStatus.failed, 1), else_=0)),
+            0,
+        ).label("failed"),
+        func.coalesce(
+            func.sum(case((filtered_runs.c.status == RunStatus.running, 1), else_=0)),
+            0,
+        ).label("running"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (filtered_runs.c.quality_status == RunQualityStatus.failed, 1),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("quality_incidents"),
+    ).cte("run_aggregates")
+    paged_runs = (
+        select(filtered_runs)
+        .order_by(filtered_runs.c.started_at.desc(), filtered_runs.c.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .cte("paged_runs")
+    )
+    paged_run = aliased(PipelineRun, paged_runs)
+    statement = (
+        select(
+            paged_run,
+            aggregates.c.total,
+            aggregates.c.successful,
+            aggregates.c.failed,
+            aggregates.c.running,
+            aggregates.c.quality_incidents,
+        )
+        .select_from(aggregates.outerjoin(paged_runs, true()))
+        .order_by(paged_runs.c.started_at.desc(), paged_runs.c.id.desc())
+    )
+    rows = db.execute(statement).all()
+    first_row = rows[0]
+    items = [row[0] for row in rows if row[0] is not None]
+
+    return PipelineRunPageResponse(
+        items=items,
+        total=first_row.total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(items) < first_row.total,
+        summary=PipelineRunSummaryResponse(
+            successful=first_row.successful,
+            failed=first_row.failed,
+            running=first_row.running,
+            quality_incidents=first_row.quality_incidents,
+        ),
+    )
 
 
 @router.get("/{run_id}", response_model=PipelineRunResponse)
