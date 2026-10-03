@@ -5,12 +5,10 @@ authenticated API. It keeps their history, catches what a single run cannot see 
 itself — such as a row count that collapsed compared with previous runs — and explains each
 incident in terms of the check that failed.
 
-<!-- After the de-lakehouse integration ships, replace the next sentence with:
-     "It is the monitoring layer for [de-lakehouse-pipeline](...), a market-data warehouse
-     that reports every orchestrated run here." -->
-It is designed to receive runs from
+It is the monitoring layer for
 [de-lakehouse-pipeline](https://github.com/Ericliu-eng/de-lakehouse-pipeline), a market-data
-warehouse. A bundled synthetic pipeline makes every scenario reproducible on its own.
+warehouse: each run of its CLI orchestrator reports here with its row count and quality-check
+results. A bundled synthetic pipeline makes every scenario reproducible on its own.
 
 [![CI](https://github.com/Ericliu-eng/pipeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/Ericliu-eng/pipeguard/actions/workflows/ci.yml)
 · Tested on SQLite and PostgreSQL 18
